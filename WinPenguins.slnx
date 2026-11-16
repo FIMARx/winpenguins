@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/WinPenguins/WinPenguins.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/WinPenguins.Tests/WinPenguins.Tests.csproj" />
+  </Folder>
+</Solution>

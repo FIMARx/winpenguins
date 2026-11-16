@@ -1,8 +1,20 @@
+# .NET build artifacts
+bin/
+obj/
+publish/
+TestResults/
+.vs/
+
+# Visual Studio / Editor files
+*.user
+*.suo
+*.sln.docstates
+*.DotSettings.user
+
+# Legacy C++ artifacts
 /*.aps
 /*.opensdf
 /*.sdf
-/*.suo
-/*.user
 /Debug
 /ipch
 /Release

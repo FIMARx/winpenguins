@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ApplicationIcon>..\..\res\winpenguins.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <AssemblyName>WinPenguins</AssemblyName>
+    <RootNamespace>WinPenguins</RootNamespace>
+    <Version>2.0.0</Version>
+    <Authors>Michael Vines, WinPenguins Contributors</Authors>
+    <Description>Modern Windows 11 desktop penguins overlay</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Vortice.Direct2D1" Version="3.8.3" />
+    <PackageReference Include="Vortice.Direct3D11" Version="3.8.3" />
+    <PackageReference Include="Vortice.DirectComposition" Version="3.8.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="WinPenguins.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\res\*.bmp" LogicalName="WinPenguins.Assets.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="..\..\res\*.wav" LogicalName="WinPenguins.Assets.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="..\..\res\winpenguins.ico" LogicalName="WinPenguins.Assets.winpenguins.ico" />
+    <EmbeddedResource Include="..\..\COPYING.txt" LogicalName="WinPenguins.Assets.COPYING.txt" />
+  </ItemGroup>
+
+</Project>

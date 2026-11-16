@@ -1,3 +1,15 @@
+2.0 (Modern Windows 11 Rewrite)
+  * Complete modern .NET 10 (net10.0-windows) rewrite replacing legacy VS2012 C++/MFC and Winmon.dll
+  - Replaced broken SysListView32 GetDC/BitBlt drawing with hardware-accelerated Direct2D + DirectComposition per-monitor GPU overlays (120/240 Hz high-res waitable timer, configurable 60/120/240 FPS)
+  - Replaced Winmon.dll global hooks with lightweight background-polled SetWinEventHook (foreground/move-size/minimize only) + DWMWA_CLOAKED + DWMWA_EXTENDED_FRAME_BOUNDS + IsZoomed
+  - Added Per-Monitor V2 DPI awareness with automatic per-monitor mixed-DPI scaling (Auto, 1x, 1.5x, 2x, 3x)
+  - Added natural motion: sub-pixel float visual interpolation, corrected right-facing sprite row order, per-penguin speed variance, idle pauses/glances, umbrella parachute spawns & mid-air saves
+  - Added interactive mouse controls (click to hop & quack, grab/drag/throw across monitors) with dynamic click-through pass-through elsewhere
+  - Added custom 32-bit transparent PNG theme packs (theme.json discovery + 1-click SampleCustom export)
+  - Added 0-100% WAV PCM volume scaling and wired action sounds (boom, eep, quack + custom WAV)
+  - Added multi-monitor roaming, Above Windows vs Desktop Only layer modes, per-process collision exclusions, fullscreen auto-hide, Battery Saver auto-pause, global pause/hide hotkey (Ctrl+Alt+P), scatter, and bomber exit
+  - Added JSON settings persistence (%AppData%\WinPenguins\settings.json), 3-tab Options UI, SingleFile publish profile, and expanded xUnit test suite
+
 0.6 (April 4, 2005)
   * Michael Adams (http://www.wolfsheep.com) made the following changes...
   - Added external WAV file support.
@@ -53,4 +65,3 @@
 
 0.1   May 9, 2000
   - initial revision
-
