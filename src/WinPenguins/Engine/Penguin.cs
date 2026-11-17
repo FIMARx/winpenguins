@@ -7,7 +7,8 @@ public enum PenguinEmote : byte
     None = 0,
     Heart = 1,
     Music = 2,
-    Alert = 3
+    Alert = 3,
+    Sleep = 4
 }
 
 public sealed class Penguin
@@ -35,6 +36,8 @@ public sealed class Penguin
     public double BeatCooldown { get; set; }
     public double SlideSecondsRemaining { get; set; }
     public double PerchDwellSeconds { get; set; }
+    public double ActionCooldown { get; set; } = 9.0;
+    public double JetBoostSeconds { get; set; }
     public bool IsSeekingFish { get; set; }
     public bool IsSliding => SlideSecondsRemaining > 0;
 
@@ -98,6 +101,8 @@ public sealed class Penguin
         if (GreetingCooldown > 0) GreetingCooldown = Math.Max(0, GreetingCooldown - dt);
         if (PortalCooldown > 0) PortalCooldown = Math.Max(0, PortalCooldown - dt);
         if (BeatCooldown > 0) BeatCooldown = Math.Max(0, BeatCooldown - dt);
+        if (ActionCooldown > 0) ActionCooldown = Math.Max(0, ActionCooldown - dt);
+        if (JetBoostSeconds > 0) JetBoostSeconds = Math.Max(0, JetBoostSeconds - dt);
         if (EmoteSecondsRemaining > 0)
         {
             EmoteSecondsRemaining = Math.Max(0, EmoteSecondsRemaining - dt);
@@ -174,6 +179,42 @@ public sealed class Penguin
         Y -= newH - oldH;
         VelocityX *= ratio;
         VelocityY *= ratio;
+    }
+
+    public void SetSubType(PenguinSubType subType, CollisionWorld? world = null)
+    {
+        if (SubType == subType)
+        {
+            return;
+        }
+
+        int oldW = Width;
+        int oldH = Height;
+        SubType = subType;
+        int newW = Width;
+        int newH = Height;
+
+        if (newW != oldW || newH != oldH)
+        {
+            X -= (newW - oldW) / 2;
+            Y -= newH - oldH;
+            if (world != null && !StartingUp && !world.IsPastBottomOfAnyCoveringMonitor(Bounds))
+            {
+                Point safe = world.ClampInsideDesktop(Bounds);
+                X = safe.X;
+                Y = safe.Y;
+            }
+        }
+
+        // Refresh Walker/Climber sprite sheet if switching to or from Santa.
+        if (Animation is PenguinAnimationId.Walker or PenguinAnimationId.SantaWalker)
+        {
+            SetAnimation(subType == PenguinSubType.Santa ? PenguinAnimationId.SantaWalker : PenguinAnimationId.Walker, Direction);
+        }
+        else if (Animation is PenguinAnimationId.Climber or PenguinAnimationId.SantaClimber)
+        {
+            SetAnimation(subType == PenguinSubType.Santa ? PenguinAnimationId.SantaClimber : PenguinAnimationId.Climber, Direction);
+        }
     }
 
     public bool HitTest(int screenX, int screenY) =>
@@ -447,5 +488,6 @@ public sealed class Penguin
         }
     }
 
-    private int ScaleDimension(int baseSize) => Math.Max(1, (int)Math.Round(baseSize * Scale));
+    private int ScaleDimension(int baseSize) =>
+        Math.Max(1, (int)Math.Round(baseSize * Scale * (SubType == PenguinSubType.Baby ? 0.75 : 1.0)));
 }

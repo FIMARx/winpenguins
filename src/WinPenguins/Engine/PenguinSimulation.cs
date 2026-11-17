@@ -141,8 +141,9 @@ public sealed class PenguinSimulation
     {
         if (wasClick)
         {
-            // Cute hop + quack on single click.
-            penguin.ReleaseGrab(0, -4.5 * penguin.Scale);
+            // Cute hop + quack on single click (Baby penguins bounce extra high!).
+            double hopVy = penguin.SubType == PenguinSubType.Baby ? -6.2 * penguin.Scale : -4.5 * penguin.Scale;
+            penguin.ReleaseGrab(0, hopVy);
             penguin.TriggerSquash(0.82f, 1.24f);
             SoundRequested?.Invoke(SoundEffectKind.Chirp);
             return;
@@ -352,14 +353,19 @@ public sealed class PenguinSimulation
                 if (Math.Abs(cursorScreenPos.Value.X - cx) <= penguin.Width &&
                     Math.Abs(cursorScreenPos.Value.Y - footY) <= penguin.Height)
                 {
+                    double dwellThreshold = penguin.SubType == PenguinSubType.Sleepy ? 0.65 : 1.25;
                     penguin.PerchDwellSeconds += dtSec;
-                    if (penguin.PerchDwellSeconds >= 1.25)
+                    if (penguin.PerchDwellSeconds >= dwellThreshold)
                     {
                         penguin.PerchDwellSeconds = 0;
                         penguin.IsPerching = true;
                         penguin.IdleSecondsRemaining = 0;
                         penguin.SlideSecondsRemaining = 0;
                         penguin.TriggerSquash(0.84f, 1.20f);
+                        if (penguin.SubType == PenguinSubType.Sleepy)
+                        {
+                            penguin.TriggerEmote(PenguinEmote.Sleep, 2.2);
+                        }
                         anyPerching = true;
                         SoundRequested?.Invoke(SoundEffectKind.Chirp);
                         continue;
@@ -371,24 +377,47 @@ public sealed class PenguinSimulation
                 }
             }
 
+            float musicThreshold = penguin.SubType == PenguinSubType.DJ ? 0.16f : 0.28f;
             if (settings.EnableMusicDancing &&
-                audioPeak > 0.28f &&
+                audioPeak > musicThreshold &&
                 !penguin.StartingUp &&
                 penguin.BeatCooldown <= 0 &&
                 penguin.Animation is PenguinAnimationId.Walker or PenguinAnimationId.SantaWalker)
             {
-                penguin.BeatCooldown = 0.28;
-                penguin.TriggerEmote(PenguinEmote.Music, 1.0);
-                if (audioPeak > 0.70f && _rng.Next(3) == 0 && !penguin.IsIdle)
+                bool isDj = penguin.SubType == PenguinSubType.DJ;
+                penguin.BeatCooldown = isDj ? 0.22 : 0.28;
+                penguin.TriggerEmote(PenguinEmote.Music, 1.1);
+                if (audioPeak > (isDj ? 0.45f : 0.70f) && _rng.Next(isDj ? 2 : 3) == 0 && !penguin.IsIdle)
                 {
                     penguin.SetAnimation(PenguinAnimationId.Faller, FacingDirection.Left);
-                    penguin.SetVelocity(penguin.VelocityX * 0.4, -4.2 * penguin.Scale);
+                    penguin.SetVelocity(penguin.VelocityX * 0.4, (isDj ? -5.0 : -4.2) * penguin.Scale);
                     penguin.TriggerSquash(0.84f, 1.22f);
                 }
                 else
                 {
-                    penguin.TriggerSquash(1.14f, 0.86f);
+                    penguin.TriggerSquash(1.16f, 0.84f);
                 }
+            }
+
+            // Chef penguins periodically serve free Fish snacks onto surfaces!
+            if (penguin.SubType == PenguinSubType.Chef &&
+                !penguin.StartingUp &&
+                penguin.Animation is PenguinAnimationId.Walker or PenguinAnimationId.SantaWalker &&
+                !penguin.IsIdle &&
+                penguin.ActionCooldown <= 0 &&
+                Toys.Toys.Count < 8 &&
+                World.IsBlocked(penguin.Bounds, CollisionDirection.Down))
+            {
+                penguin.ActionCooldown = 14.0 + _rng.NextDouble() * 8.0;
+                (int fishW, int fishH) = DesktopToy.GetDimensions(ToyKind.Fish, penguin.Scale);
+                int rawFishX = penguin.Direction == FacingDirection.Right
+                    ? penguin.Bounds.Right + 10
+                    : penguin.X - fishW - 10;
+                int rawFishY = penguin.Bounds.Bottom - fishH;
+                Point safeFish = World.ClampInsideDesktop(new Rectangle(rawFishX, rawFishY, fishW, fishH));
+                Toys.SpawnToy(ToyKind.Fish, safeFish.X, safeFish.Y, penguin.Scale);
+                penguin.TriggerEmote(PenguinEmote.Heart, 1.4);
+                SoundRequested?.Invoke(SoundEffectKind.Chirp);
             }
 
             if (penguin.SlideSecondsRemaining > 0)
@@ -461,7 +490,7 @@ public sealed class PenguinSimulation
         double walkSpeed = 3.2 * s * p.SpeedMultiplier;
         double fallSpeed = 3.0 * s;
         double tumbleSpeed = 6.0 * s;
-        double climbSpeed = 3.5 * s * p.SpeedMultiplier;
+        double climbSpeed = (p.SubType == PenguinSubType.Jetpack ? 5.2 : 3.5) * s * p.SpeedMultiplier;
         double floatSpeed = 3.0 * s;
         double parachuteSpeed = 1.6 * s;
 
@@ -482,7 +511,7 @@ public sealed class PenguinSimulation
                 if (World.IsBlocked(p.Bounds, CollisionDirection.Down))
                 {
                     FacingDirection dir = p.PreferredDirection ?? RandomDirection();
-                    EnsureSubType(p, settings.SantaPercent);
+                    EnsureSubType(p, settings);
                     p.SetAnimation(
                         p.SubType == PenguinSubType.Santa
                             ? PenguinAnimationId.SantaWalker
@@ -515,7 +544,7 @@ public sealed class PenguinSimulation
                             ? FacingDirection.Left
                             : (p.VelocityX > 0 ? FacingDirection.Right : FacingDirection.Left);
 
-                    EnsureSubType(p, settings.SantaPercent);
+                    EnsureSubType(p, settings);
                     p.SetAnimation(
                         p.SubType == PenguinSubType.Santa
                             ? PenguinAnimationId.SantaClimber
@@ -526,6 +555,21 @@ public sealed class PenguinSimulation
                 break;
 
             case PenguinAnimationId.Tumbler:
+                if (p.SubType == PenguinSubType.Jetpack &&
+                    !startingAndBlocked &&
+                    p.VelocityY > 2.2 * s &&
+                    p.ActionCooldown <= 0 &&
+                    (p.Y - p.TumbleStartY) > 100 * s &&
+                    _rng.NextDouble() < 0.05 * stepUnits)
+                {
+                    p.ActionCooldown = 4.2;
+                    p.JetBoostSeconds = 0.55;
+                    p.TumbleStartY = p.Y;
+                    p.SetVelocity(p.VelocityX, -5.8 * s);
+                    p.TriggerEmote(PenguinEmote.Alert, 0.9);
+                    SoundRequested?.Invoke(SoundEffectKind.Eep);
+                }
+
                 if (p.VelocityY < tumbleSpeed)
                 {
                     p.VelocityY = Math.Min(tumbleSpeed, p.VelocityY + 0.45 * s * stepUnits);
@@ -557,7 +601,7 @@ public sealed class PenguinSimulation
                         ? (impactVx > 0 ? FacingDirection.Right : FacingDirection.Left)
                         : (p.PreferredDirection ?? RandomDirection());
 
-                    EnsureSubType(p, settings.SantaPercent);
+                    EnsureSubType(p, settings);
                     p.SetAnimation(
                         p.SubType == PenguinSubType.Santa
                             ? PenguinAnimationId.SantaWalker
@@ -578,7 +622,7 @@ public sealed class PenguinSimulation
                     p.PreferredDirection = null;
                     p.TriggerSquash(1.24f, 0.78f);
 
-                    if (p.Y - p.TumbleStartY > splatThreshold)
+                    if (p.SubType != PenguinSubType.Jetpack && p.Y - p.TumbleStartY > splatThreshold)
                     {
                         if (p.TriggerExplosion())
                         {
@@ -653,7 +697,7 @@ public sealed class PenguinSimulation
 
                         case 2:
                         case 3:
-                            EnsureSubType(p, settings.SantaPercent);
+                            EnsureSubType(p, settings);
                             p.SetAnimation(
                                 p.SubType == PenguinSubType.Santa
                                     ? PenguinAnimationId.SantaClimber
@@ -671,7 +715,7 @@ public sealed class PenguinSimulation
                             break;
 
                         default:
-                            EnsureSubType(p, settings.SantaPercent);
+                            EnsureSubType(p, settings);
                             FacingDirection flipped = FlipDirection(p.Direction);
                             p.SetAnimation(
                                 p.SubType == PenguinSubType.Santa
@@ -682,20 +726,35 @@ public sealed class PenguinSimulation
                             break;
                     }
                 }
-                else if (settings.EnableIdlePauses && _rng.NextDouble() < 0.0045 * stepUnits)
+                else if (settings.EnableIdlePauses &&
+                    _rng.NextDouble() < (p.SubType == PenguinSubType.Sleepy ? 0.011 : 0.0045) * stepUnits)
                 {
-                    p.IdleSecondsRemaining = 0.45 + _rng.NextDouble() * 0.9;
+                    bool sleepy = p.SubType == PenguinSubType.Sleepy;
+                    p.IdleSecondsRemaining = sleepy
+                        ? (2.2 + _rng.NextDouble() * 2.8)
+                        : (0.45 + _rng.NextDouble() * 0.9);
                     p.ResetFrameToStanding();
-                    if (_rng.Next(8) == 0)
+                    if (sleepy)
+                    {
+                        p.TriggerEmote(PenguinEmote.Sleep, p.IdleSecondsRemaining);
+                    }
+                    else if (_rng.Next(8) == 0)
                     {
                         SoundRequested?.Invoke(SoundEffectKind.Chirp);
                     }
                 }
-                else if (settings.EnableIdlePauses && !p.IsSliding && _rng.NextDouble() < 0.0010 * stepUnits)
+                else if (settings.EnableIdlePauses &&
+                    !p.IsSliding &&
+                    _rng.NextDouble() < (p.SubType == PenguinSubType.DJ ? 0.0026 : 0.0010) * stepUnits)
                 {
-                    p.SlideSecondsRemaining = 0.55 + _rng.NextDouble() * 0.45;
-                    double slideSpeed = 5.4 * s * p.SpeedMultiplier;
+                    bool isDj = p.SubType == PenguinSubType.DJ;
+                    p.SlideSecondsRemaining = (isDj ? 0.95 : 0.55) + _rng.NextDouble() * 0.5;
+                    double slideSpeed = (isDj ? 6.0 : 5.4) * s * p.SpeedMultiplier;
                     p.SetVelocity(p.Direction == FacingDirection.Right ? slideSpeed : -slideSpeed, 0);
+                    if (isDj)
+                    {
+                        p.TriggerEmote(PenguinEmote.Music, p.SlideSecondsRemaining);
+                    }
                 }
                 break;
 
@@ -707,7 +766,7 @@ public sealed class PenguinSimulation
 
                 if (!World.IsBlocked(p.Bounds, climbWall))
                 {
-                    EnsureSubType(p, settings.SantaPercent);
+                    EnsureSubType(p, settings);
                     p.SetAnimation(
                         p.SubType == PenguinSubType.Santa
                             ? PenguinAnimationId.SantaWalker
@@ -746,7 +805,7 @@ public sealed class PenguinSimulation
                     {
                         p.IsParachuting = false;
                         FacingDirection dir = p.PreferredDirection ?? RandomDirection();
-                        EnsureSubType(p, settings.SantaPercent);
+                        EnsureSubType(p, settings);
                         p.SetAnimation(
                             p.SubType == PenguinSubType.Santa
                                 ? PenguinAnimationId.SantaWalker
@@ -798,7 +857,7 @@ public sealed class PenguinSimulation
 
                 if (World.IsBlocked(p.Bounds, CollisionDirection.Down))
                 {
-                    EnsureSubType(p, settings.SantaPercent);
+                    EnsureSubType(p, settings);
                     p.SetAnimation(
                         p.SubType == PenguinSubType.Santa ? PenguinAnimationId.SantaWalker : PenguinAnimationId.Walker,
                         escapeDir);
@@ -820,7 +879,8 @@ public sealed class PenguinSimulation
 
     private void ApplyCursorAvoidance(Penguin p, Point cursor)
     {
-        if (p.Animation is not (PenguinAnimationId.Walker or PenguinAnimationId.SantaWalker))
+        if (p.SubType == PenguinSubType.King ||
+            p.Animation is not (PenguinAnimationId.Walker or PenguinAnimationId.SantaWalker))
         {
             return;
         }
@@ -875,14 +935,29 @@ public sealed class PenguinSimulation
         return new Penguin(spawnX, spawnY, driftX, fallY, effectiveScale, speedMult, _specs);
     }
 
-    private void EnsureSubType(Penguin p, int santaPercent)
+    private void EnsureSubType(Penguin p, AppSettings settings)
     {
-        if (p.SubType == PenguinSubType.Unspecified)
+        if (p.SubType != PenguinSubType.Unspecified)
         {
-            p.SubType = _rng.Next(100) < santaPercent
-                ? PenguinSubType.Santa
-                : PenguinSubType.Normal;
+            return;
         }
+
+        if (_rng.Next(100) < settings.SantaPercent)
+        {
+            p.SetSubType(PenguinSubType.Santa, World);
+            return;
+        }
+
+        IReadOnlyList<PenguinSubType> crew = settings.GetEnabledSpecialCrew();
+        if (crew.Count > 0 && _rng.Next(100) < settings.SpecialCrewPercent)
+        {
+            PenguinSubType chosen = crew[_rng.Next(crew.Count)];
+            p.ActionCooldown = 8.0 + _rng.NextDouble() * 10.0;
+            p.SetSubType(chosen, World);
+            return;
+        }
+
+        p.SetSubType(PenguinSubType.Normal, World);
     }
 
     private FacingDirection RandomDirection() =>
@@ -929,7 +1004,7 @@ public sealed class PenguinSimulation
                 return true;
             }
 
-            EnsureSubType(p, settings.SantaPercent);
+            EnsureSubType(p, settings);
             p.SetAnimation(
                 p.SubType == PenguinSubType.Santa ? PenguinAnimationId.SantaClimber : PenguinAnimationId.Climber,
                 p.Direction);
@@ -1015,7 +1090,8 @@ public sealed class PenguinSimulation
                         p.SetAnimation(p.Animation, want);
                     }
 
-                    double sprint = p.IsSliding ? Math.Abs(p.VelocityX) : walkSpeed * 1.35;
+                    double mult = p.SubType == PenguinSubType.Baby ? 1.55 : 1.35;
+                    double sprint = p.IsSliding ? Math.Abs(p.VelocityX) : walkSpeed * mult;
                     p.VelocityX = want == FacingDirection.Right ? sprint : -sprint;
                     p.VelocityY = 0;
                 }
@@ -1073,8 +1149,13 @@ public sealed class PenguinSimulation
                         p.BounceCooldown = 0.45;
                         toy.Pulse = 1.0;
                         double vx = p.Direction == FacingDirection.Right ? 2.4 * s : -2.4 * s;
+                        double jumpVy = p.SubType == PenguinSubType.Jetpack ? -13.5 * s : -11.5 * s;
+                        if (p.SubType == PenguinSubType.Jetpack)
+                        {
+                            p.JetBoostSeconds = 0.45;
+                        }
                         p.SetAnimation(PenguinAnimationId.Faller, FacingDirection.Left);
-                        p.SetVelocity(vx, -11.5 * s);
+                        p.SetVelocity(vx, jumpVy);
                         p.TumbleStartY = p.Y;
                         p.TriggerSquash(0.78f, 1.28f);
                         p.TriggerEmote(PenguinEmote.Alert, 1.0);
@@ -1144,6 +1225,34 @@ public sealed class PenguinSimulation
                 Rectangle rb = b.Bounds;
                 if (!ra.IntersectsWith(rb))
                 {
+                    // Baby penguins gently flock behind nearby adult walkers on the same ledge.
+                    if (a.Animation is PenguinAnimationId.Walker or PenguinAnimationId.SantaWalker &&
+                        b.Animation is PenguinAnimationId.Walker or PenguinAnimationId.SantaWalker &&
+                        Math.Abs(ra.Bottom - rb.Bottom) <= 8 &&
+                        Math.Abs(ra.X - rb.X) <= 160 * Math.Max(a.Scale, b.Scale) &&
+                        _rng.Next(25) == 0)
+                    {
+                        if (a.SubType == PenguinSubType.Baby && b.SubType != PenguinSubType.Baby && !a.IsIdle)
+                        {
+                            FacingDirection follow = rb.X > ra.X ? FacingDirection.Right : FacingDirection.Left;
+                            if (a.Direction != follow)
+                            {
+                                a.SetAnimation(a.Animation, follow);
+                                double spd = 3.2 * a.Scale * a.SpeedMultiplier;
+                                a.VelocityX = follow == FacingDirection.Right ? spd : -spd;
+                            }
+                        }
+                        else if (b.SubType == PenguinSubType.Baby && a.SubType != PenguinSubType.Baby && !b.IsIdle)
+                        {
+                            FacingDirection follow = ra.X > rb.X ? FacingDirection.Right : FacingDirection.Left;
+                            if (b.Direction != follow)
+                            {
+                                b.SetAnimation(b.Animation, follow);
+                                double spd = 3.2 * b.Scale * b.SpeedMultiplier;
+                                b.VelocityX = follow == FacingDirection.Right ? spd : -spd;
+                            }
+                        }
+                    }
                     continue;
                 }
 
@@ -1153,13 +1262,15 @@ public sealed class PenguinSimulation
                     continue;
                 }
 
-                // Opposite-facing walkers briefly greet with a cheerful hop/chirp.
+                bool involvesKing = a.SubType == PenguinSubType.King || b.SubType == PenguinSubType.King;
+
+                // Opposite-facing walkers briefly greet with a cheerful hop/chirp (or bow when meeting a King!).
                 if (a.GreetingCooldown <= 0 &&
                     b.GreetingCooldown <= 0 &&
                     a.Animation is PenguinAnimationId.Walker or PenguinAnimationId.SantaWalker &&
                     b.Animation is PenguinAnimationId.Walker or PenguinAnimationId.SantaWalker &&
-                    a.Direction != b.Direction &&
-                    Math.Abs((ra.X + ra.Width / 2) - (rb.X + rb.Width / 2)) < Math.Min(ra.Width, rb.Width) * 0.55)
+                    (involvesKing || a.Direction != b.Direction) &&
+                    Math.Abs((ra.X + ra.Width / 2) - (rb.X + rb.Width / 2)) < Math.Min(ra.Width, rb.Width) * 0.6)
                 {
                     a.GreetingCooldown = 4.5;
                     b.GreetingCooldown = 4.5;
@@ -1167,6 +1278,11 @@ public sealed class PenguinSimulation
                     b.TriggerSquash(0.88f, 1.15f);
                     a.TriggerEmote(PenguinEmote.Heart, 1.5);
                     b.TriggerEmote(PenguinEmote.Heart, 1.5);
+                    if (involvesKing)
+                    {
+                        if (a.SubType != PenguinSubType.King) a.IdleSecondsRemaining = Math.Max(a.IdleSecondsRemaining, 0.35);
+                        if (b.SubType != PenguinSubType.King) b.IdleSecondsRemaining = Math.Max(b.IdleSecondsRemaining, 0.35);
+                    }
                     if (_rng.Next(2) == 0)
                     {
                         SoundRequested?.Invoke(SoundEffectKind.Chirp);

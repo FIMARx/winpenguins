@@ -32,6 +32,13 @@ public sealed class AppSettings
     public int SplatDistance { get; set; } = 500;
     public byte Opacity { get; set; } = 255;
     public int SantaPercent { get; set; } = 0;
+    public int SpecialCrewPercent { get; set; } = 35;
+    public bool AllowBabyPenguins { get; set; } = true;
+    public bool AllowKingPenguins { get; set; } = true;
+    public bool AllowChefPenguins { get; set; } = true;
+    public bool AllowDjPenguins { get; set; } = true;
+    public bool AllowJetpackPenguins { get; set; } = true;
+    public bool AllowSleepyPenguins { get; set; } = true;
 
     public bool EnableIdlePauses { get; set; } = true;
     public bool EnableParachutes { get; set; } = true;
@@ -73,6 +80,7 @@ public sealed class AppSettings
         SplatDistance = Math.Clamp(SplatDistance, 50, 4000);
         Opacity = Math.Clamp(Opacity, (byte)15, (byte)255);
         SantaPercent = Math.Clamp(SantaPercent, 0, 100);
+        SpecialCrewPercent = Math.Clamp(SpecialCrewPercent, 0, 100);
         SoundVolume = Math.Clamp(SoundVolume, 0, 100);
         TargetFps = TargetFps switch
         {
@@ -89,6 +97,18 @@ public sealed class AppSettings
         IgnoredProcesses ??= string.Empty;
         RecordingProcesses ??= string.Empty;
         CustomSoundPath ??= string.Empty;
+    }
+
+    public IReadOnlyList<Engine.PenguinSubType> GetEnabledSpecialCrew()
+    {
+        var list = new List<Engine.PenguinSubType>(6);
+        if (AllowBabyPenguins) list.Add(Engine.PenguinSubType.Baby);
+        if (AllowKingPenguins) list.Add(Engine.PenguinSubType.King);
+        if (AllowChefPenguins) list.Add(Engine.PenguinSubType.Chef);
+        if (AllowDjPenguins) list.Add(Engine.PenguinSubType.DJ);
+        if (AllowJetpackPenguins) list.Add(Engine.PenguinSubType.Jetpack);
+        if (AllowSleepyPenguins) list.Add(Engine.PenguinSubType.Sleepy);
+        return list;
     }
 
     public IReadOnlyList<string> ParseIgnoredProcessNames() =>

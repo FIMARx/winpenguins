@@ -1698,4 +1698,181 @@ public sealed class NextLevelFeatureTests
         Assert.True(DCompOverlayWindow.IsDeviceLostHResult(unchecked((int)0x8899000C)));
         Assert.False(DCompOverlayWindow.IsDeviceLostHResult(0));
     }
+
+    [Fact]
+    public void PenguinCrew_BabyScales75PercentAndBouncesHigherOnClick()
+    {
+        var world = new CollisionWorld([new Rectangle(0, 0, 1920, 1080)]);
+        var sim = new PenguinSimulation(world, scale: 1.0, rng: new Random(1));
+        var settings = new AppSettings
+        {
+            PenguinCount = 1,
+            SpecialCrewPercent = 100,
+            AllowBabyPenguins = true,
+            AllowKingPenguins = false,
+            AllowChefPenguins = false,
+            AllowDjPenguins = false,
+            AllowJetpackPenguins = false,
+            AllowSleepyPenguins = false
+        };
+
+        sim.EnsureCount(1);
+        Penguin baby = sim.Penguins[0];
+        baby.StartingUp = false;
+        baby.X = 500;
+        baby.Y = 1080 - baby.Height;
+        sim.Step(settings, 45.0);
+
+        Assert.Equal(PenguinSubType.Baby, baby.SubType);
+        Assert.Equal(24, baby.Width);
+        Assert.Equal(24, baby.Height);
+
+        sim.ReleaseGrab(baby, 0, 0, wasClick: true);
+        Assert.Equal(-6.2, baby.VelocityY, precision: 3);
+    }
+
+    [Fact]
+    public void PenguinCrew_KingIgnoresCursorAvoidanceAndTriggersRoyalGreeting()
+    {
+        var world = new CollisionWorld([new Rectangle(0, 0, 1920, 1080)]);
+        var sim = new PenguinSimulation(world, scale: 1.0, rng: new Random(2));
+        var settings = new AppSettings
+        {
+            PenguinCount = 2,
+            CursorAvoidance = true,
+            SpecialCrewPercent = 0,
+            EnableIdlePauses = false,
+            EnableParachutes = false
+        };
+
+        sim.EnsureCount(2);
+        Penguin king = sim.Penguins[0];
+        king.SetSubType(PenguinSubType.King, world);
+        king.StartingUp = false;
+        king.X = 400;
+        king.Y = 1080 - king.Height;
+        king.SetAnimation(PenguinAnimationId.Walker, FacingDirection.Right);
+        king.SetVelocity(3.2, 0);
+
+        Penguin citizen = sim.Penguins[1];
+        citizen.SetSubType(PenguinSubType.Normal, world);
+        citizen.StartingUp = false;
+        citizen.X = 408;
+        citizen.Y = 1080 - citizen.Height;
+        citizen.SetAnimation(PenguinAnimationId.Walker, FacingDirection.Right);
+        citizen.SetVelocity(3.2, 0);
+
+        // Cursor directly in front of the King does not turn him away.
+        sim.Step(settings, 45.0, new Point(king.X + king.Width + 4, king.Y + king.Height / 2));
+        Assert.Equal(FacingDirection.Right, king.Direction);
+        Assert.Equal(PenguinEmote.Heart, king.Emote);
+        Assert.Equal(PenguinEmote.Heart, citizen.Emote);
+    }
+
+    [Fact]
+    public void PenguinCrew_ChefDropsFreeFishSnackWhenCooldownExpires()
+    {
+        var world = new CollisionWorld([new Rectangle(0, 0, 1920, 1080)]);
+        var sim = new PenguinSimulation(world, scale: 1.0, rng: new Random(3));
+        var settings = new AppSettings
+        {
+            PenguinCount = 1,
+            SpecialCrewPercent = 0,
+            EnableIdlePauses = false,
+            EnableParachutes = false
+        };
+
+        sim.EnsureCount(1);
+        Penguin chef = sim.Penguins[0];
+        chef.SetSubType(PenguinSubType.Chef, world);
+        chef.StartingUp = false;
+        chef.ActionCooldown = 0;
+        chef.X = 500;
+        chef.Y = 1080 - chef.Height;
+        chef.SetAnimation(PenguinAnimationId.Walker, FacingDirection.Right);
+        chef.SetVelocity(3.2, 0);
+
+        sim.Step(settings, 45.0);
+        Assert.Contains(sim.Toys.Toys, t => t.Kind == ToyKind.Fish);
+        Assert.True(chef.ActionCooldown > 10.0);
+    }
+
+    [Fact]
+    public void PenguinCrew_DjDancesToSoftMusicAndJetpackSurvivesTallFalls()
+    {
+        var world = new CollisionWorld([new Rectangle(0, 0, 1920, 1080)]);
+        var sim = new PenguinSimulation(world, scale: 1.0, rng: new Random(4));
+        var settings = new AppSettings
+        {
+            PenguinCount = 2,
+            SplatDistance = 120,
+            NeverSplat = false,
+            EnableMusicDancing = true,
+            SpecialCrewPercent = 0,
+            EnableIdlePauses = false,
+            EnableParachutes = false
+        };
+
+        sim.EnsureCount(2);
+        Penguin dj = sim.Penguins[0];
+        dj.SetSubType(PenguinSubType.DJ, world);
+        dj.StartingUp = false;
+        dj.BeatCooldown = 0;
+        dj.X = 400;
+        dj.Y = 1080 - dj.Height;
+        dj.SetAnimation(PenguinAnimationId.Walker, FacingDirection.Right);
+        dj.SetVelocity(3.2, 0);
+
+        Penguin jet = sim.Penguins[1];
+        jet.SetSubType(PenguinSubType.Jetpack, world);
+        jet.StartingUp = false;
+        jet.ActionCooldown = 99;
+        jet.X = 800;
+        jet.Y = 1080 - jet.Height;
+        jet.TumbleStartY = 200; // Far exceeding SplatDistance=120
+        jet.SetAnimation(PenguinAnimationId.Tumbler, FacingDirection.Left);
+        jet.SetVelocity(0, 6.0);
+
+        // Soft audio peak (0.20) triggers DJ dance emote even though normal threshold is 0.28.
+        sim.Step(settings, 45.0, audioPeak: 0.20f);
+        Assert.Equal(PenguinEmote.Music, dj.Emote);
+        Assert.False(jet.IsTerminalAnimation);
+        Assert.True(jet.Active);
+    }
+
+    [Fact]
+    public void OverlayHost_RendersAllCrewSubTypesAndSleepEmotesCleanly()
+    {
+        SpriteCatalog catalog = SpriteCatalog.LoadDefault(1.0);
+        var settings = new AppSettings { PenguinCount = 8, LayerMode = OverlayLayerMode.AboveWindows };
+        using var host = new OverlayHost(settings, catalog);
+        var world = new CollisionWorld([new Rectangle(0, 0, 1920, 1080)]);
+        var sim = new PenguinSimulation(world, 1.0, new Random(8));
+        sim.EnsureCount(8);
+
+        PenguinSubType[] roles =
+        [
+            PenguinSubType.Normal, PenguinSubType.Santa, PenguinSubType.Baby, PenguinSubType.King,
+            PenguinSubType.Chef, PenguinSubType.DJ, PenguinSubType.Jetpack, PenguinSubType.Sleepy
+        ];
+        for (int i = 0; i < roles.Length; i++)
+        {
+            Penguin p = sim.Penguins[i];
+            p.StartingUp = false;
+            p.X = 120 + i * 90;
+            p.Y = 500;
+            p.SetAnimation(PenguinAnimationId.Walker, i % 2 == 0 ? FacingDirection.Right : FacingDirection.Left);
+            p.SetSubType(roles[i], world);
+            if (roles[i] == PenguinSubType.Sleepy)
+            {
+                p.TriggerEmote(PenguinEmote.Sleep, 1.5);
+            }
+            else if (roles[i] == PenguinSubType.Jetpack)
+            {
+                p.JetBoostSeconds = 0.5;
+            }
+        }
+
+        host.RenderAll(sim.Penguins, 255, forceRedraw: true);
+    }
 }

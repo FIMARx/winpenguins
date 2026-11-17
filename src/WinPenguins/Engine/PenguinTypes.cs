@@ -13,11 +13,17 @@ public enum PenguinAnimationId
     SantaClimber
 }
 
-public enum PenguinSubType
+public enum PenguinSubType : byte
 {
-    Unspecified,
-    Normal,
-    Santa
+    Unspecified = 0,
+    Normal = 1,
+    Santa = 2,
+    Baby = 3,
+    King = 4,
+    Chef = 5,
+    DJ = 6,
+    Jetpack = 7,
+    Sleepy = 8
 }
 
 public enum FacingDirection

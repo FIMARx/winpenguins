@@ -763,6 +763,35 @@ public sealed class TrayApplicationContext : ApplicationContext
             _simulation.Toys.SpawnToy(ToyKind.Trampoline, screenX - 22, Math.Max(0, screenY - 12), scale);
             StepAndRender(forceRedraw: true, deltaMs: 0);
         }));
+
+        var roleMenu = new ToolStripMenuItem("Change Role");
+        foreach ((PenguinSubType role, string label) in new[]
+        {
+            (PenguinSubType.Normal, "Normal (Classic)"),
+            (PenguinSubType.Baby, "Baby Pingu"),
+            (PenguinSubType.King, "King Penguin"),
+            (PenguinSubType.Chef, "Chef Penguin"),
+            (PenguinSubType.DJ, "Party DJ"),
+            (PenguinSubType.Jetpack, "Jetpack Acrobat"),
+            (PenguinSubType.Sleepy, "Sleepyhead"),
+            (PenguinSubType.Santa, "Santa Penguin")
+        })
+        {
+            PenguinSubType r = role;
+            var item = new ToolStripMenuItem(label, null, (_, _) =>
+            {
+                hit.SetSubType(r, _world);
+                hit.TriggerSquash(0.84f, 1.24f);
+                hit.TriggerEmote(r == PenguinSubType.Sleepy ? PenguinEmote.Sleep : PenguinEmote.Heart, 1.4);
+                StepAndRender(forceRedraw: true, deltaMs: 0);
+            })
+            {
+                Checked = hit.SubType == role
+            };
+            roleMenu.DropDownItems.Add(item);
+        }
+        _overlayContextMenu.Items.Add(roleMenu);
+
         _overlayContextMenu.Items.Add(new ToolStripMenuItem("Explode This Penguin", null, (_, _) => hit.TriggerBomber()));
         _overlayContextMenu.Items.Add(new ToolStripSeparator());
         _overlayContextMenu.Items.Add(new ToolStripMenuItem("Scatter All", null, (_, _) => _simulation.ScatterAll()));

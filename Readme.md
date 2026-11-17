@@ -20,11 +20,11 @@ The original 2000–2013 C++/MFC codebase (`kasper93/winpenguins`) stopped rende
 
 ## Highlights in v2.1
 
-- **240 Hz Direct2D Smoothness & Contact Shadows**: Per-frame `Matrix3x2` tilt, tumbler spin, landing squash-and-stretch springs, and grounded soft contact shadows beneath penguins.
-- **Playful Physics, Toys & Snow**: Penguin-to-penguin head/umbrella bounces and walker greetings, spontaneous belly slides, Cursor Perch (hop onto a resting mouse cursor and fling off on a fast shake), interactive **Desktop Toys** (**Drop Fish Snack**, **Drop Trampoline**, **Spawn Twin Portals**), and toggleable **Let It Snow** accumulation that scatters when penguins walk through.
-- **Smart Ambient Integration**: Windows WASAPI peak-meter **Dance to Music**, **Presentation Mode / Focus Assist** auto-pause, **Screen-Recording / Streaming** app auto-pause (`obs64`, `streamlabs`, `bandicam`, `xsplit`, customizable), and **Session Lock** zero-GPU sleep.
-- **Built-in `SmoothHD` Theme, GIF/Aseprite Importer & Live Preview**: Embedded EPX/Scale2x `SmoothHD` vector-pixel theme, 1-click **Import GIF / Aseprite...** pack creator in Options, and a live animated preview card.
-- **GitHub Actions CI/CD**: Automated restore, Release build, xUnit suite, single-file `WinPenguins.exe` publishing, and tagged Release asset uploads.
+- **6 Unique Penguin Crew Roles + Santa**: Alongside Classic and Santa penguins, recruit **Baby Pingu** (0.75× scale, flocks behind adults & chases snacks faster), **King** (golden crown, cursor-fearless, royal greetings), **Chef** (white toque, periodically serves free **Fish Snacks**), **Party DJ** (neon headphones & sunglasses, beat-boosted dancing & extra slides), **Jetpack Acrobat** (booster flames, fast climbing, mid-air boosts & splat-proof), and **Sleepyhead** (nightcap, cozy naps & floating `Zzz`), customizable via **Options** or right-clicking any penguin -> **Change Role**.
+- **240 Hz Direct2D Smoothness, Emotes & Contact Shadows**: Per-frame `Matrix3x2` tilt, tumbler spin, landing squash-and-stretch springs, procedural vector emotes (`♥`, `♪`, `!`, `Zzz`), and grounded soft contact shadows beneath penguins.
+- **Draggable Desktop Toys, Snow & Cursor Perch**: Left-drag or right-click **Fish Snacks**, **Trampolines**, and **Twin Portals** across monitors; hop onto a resting cursor and fling off with a fast shake; toggle **Let It Snow** flakes settling on windows and scattering underfoot.
+- **Modern Windows 11 Fluent UI**: Auto Dark/Light palette sync, sidebar navigation, pill switches, accent sliders, **Mood Presets**, live slider preview, drag-and-drop `.gif` / Aseprite `.json` theme import, and DXGI/Direct2D device-lost recovery.
+- **Smart Ambient Integration & CI/CD**: Windows WASAPI peak-meter **Dance to Music**, Focus Assist/Presentation & screen-recording auto-pause, Session Lock zero-GPU sleep, built-in `SmoothHD` theme, and automated [GitHub Actions CI/Release](.github/workflows/ci-release.yml).
 
 ## Highlights in v2.0
 

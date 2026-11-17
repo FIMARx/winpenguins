@@ -306,6 +306,91 @@ internal sealed class FluentComboBox : ComboBox
     }
 }
 
+internal sealed class FluentChipButton : Control
+{
+    private readonly FluentPalette _palette;
+    private bool _checked;
+    private bool _hovered;
+
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public bool Checked
+    {
+        get => _checked;
+        set
+        {
+            if (_checked == value) return;
+            _checked = value;
+            Invalidate();
+            CheckedChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    public event EventHandler? CheckedChanged;
+
+    public FluentChipButton(FluentPalette palette, string text)
+    {
+        _palette = palette;
+        Text = text;
+        Font = new Font("Segoe UI Semibold", 8.75f);
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.Selectable, true);
+        Size = new Size(78, 28);
+        MinimumSize = new Size(68, 28);
+        Cursor = Cursors.Hand;
+        TabStop = true;
+    }
+
+    protected override void OnMouseEnter(EventArgs e) { _hovered = true; Invalidate(); base.OnMouseEnter(e); }
+    protected override void OnMouseLeave(EventArgs e) { _hovered = false; Invalidate(); base.OnMouseLeave(e); }
+    protected override void OnClick(EventArgs e)
+    {
+        if (Enabled)
+        {
+            Checked = !Checked;
+        }
+        base.OnClick(e);
+    }
+
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        if (Enabled && e.KeyCode is Keys.Space or Keys.Enter)
+        {
+            Checked = !Checked;
+            e.Handled = true;
+        }
+        base.OnKeyDown(e);
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        Graphics g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        g.Clear(Parent?.BackColor ?? _palette.CardBg);
+
+        var rect = new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f);
+        using GraphicsPath path = FluentUi.CreateRoundRect(rect, 13f);
+        Color bg = Checked
+            ? (_hovered ? _palette.AccentHover : _palette.Accent)
+            : (_hovered ? _palette.ControlHover : _palette.ControlBg);
+        Color fg = Checked ? _palette.AccentText : _palette.TextPrimary;
+        Color border = Checked ? bg : _palette.ControlBorder;
+
+        using (var fill = new SolidBrush(bg))
+        using (var pen = new Pen(border, 1f))
+        {
+            g.FillPath(fill, path);
+            g.DrawPath(pen, path);
+        }
+
+        TextRenderer.DrawText(
+            g,
+            Text,
+            Font,
+            ClientRectangle,
+            fg,
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+    }
+}
+
 internal sealed class FluentCard : Panel
 {
     private readonly FluentPalette _palette;

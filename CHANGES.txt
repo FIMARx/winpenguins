@@ -12,6 +12,8 @@
   - Upgraded Options & About dialogs to native-style Windows 11 Fluent UI (Dark/Light live sync, pill switches, accent sliders, Fluent ComboBoxes, Mood Presets & instant live preview)
   - Added mouse grab/drag/remove for Desktop Toys, procedural Direct2D micro-emotes (Heart, Music, Alert), right-click penguin/toy context menus, and 240Hz fish-seeking fix
   - Added automatic DXGI/Direct2D device-lost GPU pipeline recovery across sleep-wake, driver updates & monitor docks
+  - Added 6 special Penguin Crew Roles with custom Direct2D costumes & unique behaviors: Baby Pingu (0.75x size, flocks & extra bouncy), King Penguin (golden crown, cursor-fearless, royal greetings), Chef Penguin (toque hat, drops free Fish Snacks), Party DJ (neon headphones & sunglasses, beat-boosted dancing & longer slides), Jetpack Acrobat (booster pack + exhaust flames, fast climb, mid-air boosts & splat-proof), and Sleepyhead (nightcap, cozy long naps & Zzz emotes)
+  - Added Special crew mix slider, clickable role toggle pills in Options, and live Right-Click -> Change Role menu
   - Added GitHub Actions CI/Release workflow (.github/workflows/ci-release.yml)
 
 2.0 (Modern Windows 11 Rewrite)

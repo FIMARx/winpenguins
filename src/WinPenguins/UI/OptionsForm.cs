@@ -60,6 +60,14 @@ public sealed class OptionsForm : Form
     private readonly Label _alphaValueLabel;
     private readonly FluentSlider _santaSlider;
     private readonly Label _santaValueLabel;
+    private readonly FluentSlider _crewSlider;
+    private readonly Label _crewValueLabel;
+    private readonly FluentChipButton _babyChip;
+    private readonly FluentChipButton _kingChip;
+    private readonly FluentChipButton _chefChip;
+    private readonly FluentChipButton _djChip;
+    private readonly FluentChipButton _jetpackChip;
+    private readonly FluentChipButton _sleepyChip;
     private readonly FluentToggleSwitch _idlePausesToggle;
     private readonly FluentToggleSwitch _parachutesToggle;
     private readonly FluentToggleSwitch _neverSplatToggle;
@@ -305,6 +313,42 @@ public sealed class OptionsForm : Form
         (_alphaSlider, _alphaValueLabel) = AddSliderRow(colonyRows, ref cRow, "Sprite opacity", "Blend translucency across your open apps", 15, 255, v => $"{v * 100 / 255}%");
         AddDivider(colonyRows, ref cRow);
         (_santaSlider, _santaValueLabel) = AddSliderRow(colonyRows, ref cRow, "Santa penguins", "Percentage of festive Santa walkers & climbers", 0, 100, v => $"{v}%");
+        AddDivider(colonyRows, ref cRow);
+        (_crewSlider, _crewValueLabel) = AddSliderRow(colonyRows, ref cRow, "Special crew mix", "Share of non-Santa penguins spawning with unique roles", 0, 100, v => $"{v}%");
+        AddDivider(colonyRows, ref cRow);
+
+        var chipRow = new TableLayoutPanel
+        {
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Dock = DockStyle.Top,
+            ColumnCount = 7,
+            RowCount = 1,
+            BackColor = _palette.CardBg,
+            Margin = new Padding(0, 4, 0, 2)
+        };
+        _cardBgControls.Add(chipRow);
+        for (int i = 0; i < 6; i++)
+        {
+            chipRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        }
+        chipRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        chipRow.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+        _babyChip = CreateCrewChip("Baby");
+        _kingChip = CreateCrewChip("King");
+        _chefChip = CreateCrewChip("Chef");
+        _djChip = CreateCrewChip("Party DJ");
+        _jetpackChip = CreateCrewChip("Jetpack");
+        _sleepyChip = CreateCrewChip("Sleepy");
+
+        chipRow.Controls.Add(_babyChip, 0, 0);
+        chipRow.Controls.Add(_kingChip, 1, 0);
+        chipRow.Controls.Add(_chefChip, 2, 0);
+        chipRow.Controls.Add(_djChip, 3, 0);
+        chipRow.Controls.Add(_jetpackChip, 4, 0);
+        chipRow.Controls.Add(_sleepyChip, 5, 0);
+        AddStackedControlRow(colonyRows, ref cRow, "Enabled crew roles", "Click roles to toggle whether they spawn in your colony", chipRow);
 
         AddSectionHeader(page1, ref p1Row, "Physics & Lifelike Habits");
         TableLayoutPanel habitRows = AddCard(page1, ref p1Row);
@@ -805,6 +849,13 @@ public sealed class OptionsForm : Form
             FrameDelayMs = AppSettings.MaxFrameDelayMs - _speedSlider.Value,
             Opacity = (byte)_alphaSlider.Value,
             SantaPercent = _santaSlider.Value,
+            SpecialCrewPercent = _crewSlider.Value,
+            AllowBabyPenguins = _babyChip.Checked,
+            AllowKingPenguins = _kingChip.Checked,
+            AllowChefPenguins = _chefChip.Checked,
+            AllowDjPenguins = _djChip.Checked,
+            AllowJetpackPenguins = _jetpackChip.Checked,
+            AllowSleepyPenguins = _sleepyChip.Checked,
             EnableIdlePauses = _idlePausesToggle.Checked,
             EnableParachutes = _parachutesToggle.Checked,
             NeverSplat = _neverSplatToggle.Checked,
@@ -851,6 +902,13 @@ public sealed class OptionsForm : Form
             _speedSlider.Value = AppSettings.MaxFrameDelayMs - copy.FrameDelayMs;
             _alphaSlider.Value = copy.Opacity;
             _santaSlider.Value = copy.SantaPercent;
+            _crewSlider.Value = copy.SpecialCrewPercent;
+            _babyChip.Checked = copy.AllowBabyPenguins;
+            _kingChip.Checked = copy.AllowKingPenguins;
+            _chefChip.Checked = copy.AllowChefPenguins;
+            _djChip.Checked = copy.AllowDjPenguins;
+            _jetpackChip.Checked = copy.AllowJetpackPenguins;
+            _sleepyChip.Checked = copy.AllowSleepyPenguins;
             _idlePausesToggle.Checked = copy.EnableIdlePauses;
             _parachutesToggle.Checked = copy.EnableParachutes;
             _neverSplatToggle.Checked = copy.NeverSplat;
@@ -944,6 +1002,7 @@ public sealed class OptionsForm : Form
         _speedValueLabel.Text = $"{45.0 / (AppSettings.MaxFrameDelayMs - _speedSlider.Value):0.0}x";
         _alphaValueLabel.Text = $"{_alphaSlider.Value * 100 / 255}%";
         _santaValueLabel.Text = $"{_santaSlider.Value}%";
+        _crewValueLabel.Text = $"{_crewSlider.Value}%";
         _splatValueLabel.Text = $"{_splatSlider.Value} px";
         _volumeValueLabel.Text = $"{_volumeSlider.Value}%";
     }
@@ -1137,6 +1196,7 @@ public sealed class OptionsForm : Form
         s.Opacity = 255;
         s.ThemeName = "SmoothHD";
         s.SantaPercent = 35;
+        s.SpecialCrewPercent = 30;
         s.EnableSnow = true;
         s.EnableParachutes = true;
         s.NeverSplat = true;
@@ -1147,6 +1207,9 @@ public sealed class OptionsForm : Form
         s.PenguinCount = 24;
         s.FrameDelayMs = 34;
         s.Opacity = 255;
+        s.SpecialCrewPercent = 65;
+        s.AllowDjPenguins = true;
+        s.AllowJetpackPenguins = true;
         s.EnableMusicDancing = true;
         s.CursorPerch = true;
         s.NeverSplat = true;
@@ -1158,11 +1221,22 @@ public sealed class OptionsForm : Form
         s.PenguinCount = 4;
         s.FrameDelayMs = 50;
         s.Opacity = 210;
+        s.SpecialCrewPercent = 0;
         s.IgnoreMaximizedWindows = true;
         s.EnableSnow = false;
         s.SoundEnabled = false;
         s.EnableActionSounds = false;
     });
+
+    private FluentChipButton CreateCrewChip(string text)
+    {
+        var chip = new FluentChipButton(_palette, text)
+        {
+            Margin = new Padding(0, 0, 6, 0)
+        };
+        chip.CheckedChanged += (_, _) => ScheduleLiveApply();
+        return chip;
+    }
 
     private FluentButton CreatePresetButton(string label, Action onClick)
     {
