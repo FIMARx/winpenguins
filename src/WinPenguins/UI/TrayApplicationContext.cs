@@ -391,13 +391,35 @@ public sealed class TrayApplicationContext : ApplicationContext
             return;
         }
 
-        using var dlg = new OptionsForm(_appIcon, _settings, _soundService, ApplySettings);
+        using var dlg = new OptionsForm(_appIcon, _settings, _soundService, ApplySettings, ExecuteQuickAction);
         _activeDialog = dlg;
         if (dlg.ShowDialog() == DialogResult.OK)
         {
             SettingsStore.Save(_settings);
         }
         _activeDialog = null;
+    }
+
+    private void ExecuteQuickAction(PenguinQuickAction action)
+    {
+        switch (action)
+        {
+            case PenguinQuickAction.SpawnFish:
+                SpawnToyInActiveMonitor(ToyKind.Fish);
+                break;
+            case PenguinQuickAction.SpawnTrampoline:
+                SpawnToyInActiveMonitor(ToyKind.Trampoline);
+                break;
+            case PenguinQuickAction.SpawnPortals:
+                _simulation.Toys.SpawnTwinPortals(_world, Random.Shared);
+                break;
+            case PenguinQuickAction.ClearToys:
+                _simulation.Toys.Clear();
+                break;
+            case PenguinQuickAction.Scatter:
+                _simulation.ScatterAll();
+                break;
+        }
     }
 
     private void ShowAbout()

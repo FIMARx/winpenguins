@@ -74,6 +74,10 @@ internal static unsafe class NativeMethods
 
     public const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
     public const int DWMWA_CLOAKED = 14;
+    public const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
+    public const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
+    public const int DWMWA_SYSTEMBACKDROP_TYPE = 38;
+    public const int DWMWCP_ROUND = 2;
 
     public const int OBJID_WINDOW = 0;
     public const int CHILDID_SELF = 0;
@@ -227,6 +231,13 @@ internal static unsafe class NativeMethods
         IntPtr hwnd,
         int dwAttribute,
         out RECT pvAttribute,
+        int cbAttribute);
+
+    [DllImport("dwmapi.dll")]
+    public static extern int DwmSetWindowAttribute(
+        IntPtr hwnd,
+        int dwAttribute,
+        ref int pvAttribute,
         int cbAttribute);
 
     [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
