@@ -49,6 +49,8 @@ public sealed class TrayApplicationContext : ApplicationContext
     private Form? _activeDialog;
 
     private Penguin? _grabbedPenguin;
+    private DesktopToy? _grabbedToy;
+    private ContextMenuStrip? _overlayContextMenu;
     private Point _grabStartPoint;
     private bool _grabMovedSignificantly;
 
@@ -70,10 +72,11 @@ public sealed class TrayApplicationContext : ApplicationContext
         _world = new CollisionWorld(GetMonitorBounds(_overlayHost.ActiveScreens), monitorScales: _cachedMonitorScales);
         _simulation = new PenguinSimulation(_world, _activeScale, specs: _spriteCatalog.GetSpecsMap());
         _overlayHost.SetPointHitTest((x, y) =>
-            !_paused && !_hiddenForFullscreen && !_exiting && _settings.InteractiveMouse && _simulation.HitTest(x, y) is not null);
+            !_paused && !_hiddenForFullscreen && !_exiting && _settings.InteractiveMouse && IsInteractiveTargetAt(x, y));
         _overlayHost.MouseDown += OnOverlayMouseDown;
         _overlayHost.MouseMove += OnOverlayMouseMove;
         _overlayHost.MouseUp += OnOverlayMouseUp;
+        _overlayHost.RightClick += OnOverlayRightClick;
         _overlayHost.CaptureLost += OnOverlayCaptureLost;
         _simulation.SoundRequested += kind => _soundService.PlayEvent(kind, _settings);
         _simulation.EnsureCount(_settings.PenguinCount);
@@ -230,8 +233,8 @@ public sealed class TrayApplicationContext : ApplicationContext
         _overlayHost.EnsureDesktopZOrderIfNeeded();
         _overlayHost.UpdateInteractiveHover(
             _settings.InteractiveMouse,
-            _grabbedPenguin is not null,
-            (hx, hy) => _simulation.HitTest(hx, hy) is not null);
+            _grabbedPenguin is not null || _grabbedToy is not null,
+            IsInteractiveTargetAt);
         _overlayHost.RenderAll(_simulation.Penguins, _settings.Opacity, forceRedraw, _simulation.Toys.Toys, _simulation.Snow);
     }
 
@@ -300,11 +303,20 @@ public sealed class TrayApplicationContext : ApplicationContext
         }
 
         _paused = effectivelyPaused;
-        if (_paused && _grabbedPenguin is not null)
+        if (_paused)
         {
-            _simulation.ReleaseGrab(_grabbedPenguin, 0, 0, wasClick: false);
-            _grabbedPenguin = null;
-            _dragSamples.Clear();
+            if (_grabbedPenguin is not null)
+            {
+                _simulation.ReleaseGrab(_grabbedPenguin, 0, 0, wasClick: false);
+                _grabbedPenguin = null;
+                _dragSamples.Clear();
+            }
+
+            if (_grabbedToy is not null)
+            {
+                _simulation.ReleaseToyGrab(_grabbedToy);
+                _grabbedToy = null;
+            }
         }
 
         _overlayHost.SetVisible(!_paused && !_hiddenForFullscreen);
@@ -430,7 +442,8 @@ public sealed class TrayApplicationContext : ApplicationContext
             return;
         }
 
-        using var dlg = new AboutForm(_appIcon);
+        string stats = $"Active penguins: {_simulation.Penguins.Count} · Fish eaten: {_simulation.FishEatenCount} · Trampoline bounces: {_simulation.TrampolineBouncesCount} · Portal jumps: {_simulation.PortalJumpsCount}";
+        using var dlg = new AboutForm(_appIcon, stats);
         _activeDialog = dlg;
         dlg.ShowDialog();
         _activeDialog = null;
@@ -590,6 +603,10 @@ public sealed class TrayApplicationContext : ApplicationContext
         RebuildMonitors();
     }
 
+    private bool IsInteractiveTargetAt(int screenX, int screenY) =>
+        _simulation.HitTestToy(screenX, screenY) is not null ||
+        _simulation.HitTest(screenX, screenY) is not null;
+
     private void OnOverlayMouseDown(int screenX, int screenY)
     {
         if (!_settings.InteractiveMouse || _paused || _hiddenForFullscreen || _exiting)
@@ -597,9 +614,30 @@ public sealed class TrayApplicationContext : ApplicationContext
             return;
         }
 
+        DesktopToy? toyHit = _simulation.HitTestToy(screenX, screenY);
+        if (toyHit is not null)
+        {
+            _grabbedToy = toyHit;
+            _grabStartPoint = new Point(screenX, screenY);
+            _grabMovedSignificantly = false;
+            _simulation.BeginToyGrab(toyHit);
+            _simulation.MoveToyGrab(toyHit, screenX, screenY);
+            StepAndRender(forceRedraw: true, deltaMs: 0);
+            return;
+        }
+
         Penguin? hit = _simulation.HitTest(screenX, screenY);
         if (hit is null)
         {
+            return;
+        }
+
+        if (Control.ModifierKeys.HasFlag(Keys.Shift))
+        {
+            double fishScale = _world.GetScaleAt(screenX, screenY, _activeScale);
+            _simulation.Toys.SpawnToy(ToyKind.Fish, screenX - 12, Math.Max(0, screenY - 24), fishScale);
+            hit.TriggerEmote(PenguinEmote.Heart, 1.4);
+            StepAndRender(forceRedraw: true, deltaMs: 0);
             return;
         }
 
@@ -613,6 +651,18 @@ public sealed class TrayApplicationContext : ApplicationContext
 
     private void OnOverlayMouseMove(int screenX, int screenY)
     {
+        if (_grabbedToy is not null)
+        {
+            if (Math.Abs(screenX - _grabStartPoint.X) > 4 || Math.Abs(screenY - _grabStartPoint.Y) > 4)
+            {
+                _grabMovedSignificantly = true;
+            }
+
+            _simulation.MoveToyGrab(_grabbedToy, screenX, screenY);
+            StepAndRender(forceRedraw: true, deltaMs: 0);
+            return;
+        }
+
         if (_grabbedPenguin is null)
         {
             return;
@@ -636,6 +686,16 @@ public sealed class TrayApplicationContext : ApplicationContext
 
     private void OnOverlayMouseUp(int screenX, int screenY)
     {
+        if (_grabbedToy is not null)
+        {
+            DesktopToy releasedToy = _grabbedToy;
+            _grabbedToy = null;
+            _simulation.ReleaseToyGrab(releasedToy);
+            _overlayHost.UpdateInteractiveHover(_settings.InteractiveMouse, isDragging: false, IsInteractiveTargetAt);
+            StepAndRender(forceRedraw: true, deltaMs: 0);
+            return;
+        }
+
         if (_grabbedPenguin is null)
         {
             return;
@@ -655,12 +715,70 @@ public sealed class TrayApplicationContext : ApplicationContext
         _overlayHost.UpdateInteractiveHover(
             _settings.InteractiveMouse,
             isDragging: false,
-            (hx, hy) => _simulation.HitTest(hx, hy) is not null);
+            IsInteractiveTargetAt);
         StepAndRender(forceRedraw: true, deltaMs: 0);
+    }
+
+    private void OnOverlayRightClick(int screenX, int screenY)
+    {
+        if (!_settings.InteractiveMouse || _paused || _hiddenForFullscreen || _exiting)
+        {
+            return;
+        }
+
+        _overlayContextMenu?.Dispose();
+        _overlayContextMenu = new ContextMenuStrip();
+
+        DesktopToy? toyHit = _simulation.HitTestToy(screenX, screenY);
+        if (toyHit is not null)
+        {
+            _overlayContextMenu.Items.Add(new ToolStripMenuItem("Remove This Toy", null, (_, _) =>
+            {
+                _simulation.RemoveToy(toyHit);
+                StepAndRender(forceRedraw: true, deltaMs: 0);
+            }));
+            _overlayContextMenu.Items.Add(new ToolStripMenuItem("Clear All Toys", null, (_, _) =>
+            {
+                _simulation.Toys.Clear();
+                StepAndRender(forceRedraw: true, deltaMs: 0);
+            }));
+            _overlayContextMenu.Show(screenX, screenY);
+            return;
+        }
+
+        Penguin? hit = _simulation.HitTest(screenX, screenY);
+        if (hit is null)
+        {
+            return;
+        }
+
+        double scale = _world.GetScaleAt(screenX, screenY, _activeScale);
+        _overlayContextMenu.Items.Add(new ToolStripMenuItem("Feed Fish Here", null, (_, _) =>
+        {
+            _simulation.Toys.SpawnToy(ToyKind.Fish, screenX - 12, Math.Max(0, screenY - 24), scale);
+            StepAndRender(forceRedraw: true, deltaMs: 0);
+        }));
+        _overlayContextMenu.Items.Add(new ToolStripMenuItem("Drop Trampoline Here", null, (_, _) =>
+        {
+            _simulation.Toys.SpawnToy(ToyKind.Trampoline, screenX - 22, Math.Max(0, screenY - 12), scale);
+            StepAndRender(forceRedraw: true, deltaMs: 0);
+        }));
+        _overlayContextMenu.Items.Add(new ToolStripMenuItem("Explode This Penguin", null, (_, _) => hit.TriggerBomber()));
+        _overlayContextMenu.Items.Add(new ToolStripSeparator());
+        _overlayContextMenu.Items.Add(new ToolStripMenuItem("Scatter All", null, (_, _) => _simulation.ScatterAll()));
+        _overlayContextMenu.Items.Add(new ToolStripMenuItem("Options...", null, (_, _) => ShowOptions()));
+        _overlayContextMenu.Show(screenX, screenY);
     }
 
     private void OnOverlayCaptureLost()
     {
+        if (_grabbedToy is not null)
+        {
+            DesktopToy releasedToy = _grabbedToy;
+            _grabbedToy = null;
+            _simulation.ReleaseToyGrab(releasedToy);
+        }
+
         if (_grabbedPenguin is null)
         {
             return;
@@ -748,7 +866,9 @@ public sealed class TrayApplicationContext : ApplicationContext
             _overlayHost.MouseDown -= OnOverlayMouseDown;
             _overlayHost.MouseMove -= OnOverlayMouseMove;
             _overlayHost.MouseUp -= OnOverlayMouseUp;
+            _overlayHost.RightClick -= OnOverlayRightClick;
             _overlayHost.CaptureLost -= OnOverlayCaptureLost;
+            _overlayContextMenu?.Dispose();
             _ambientCheckTimer.Stop();
             _ambientCheckTimer.Dispose();
             _hotkeyWindow.HotkeyPressed -= TogglePause;

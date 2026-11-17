@@ -8,7 +8,10 @@
   - Added WASAPI peak-meter audio detection for music-reactive penguin dancing (Dance to Music)
   - Added Windows Presentation/Focus Assist auto-pause, recording-process auto-pause, and Session Lock zero-GPU sleep
   - Added built-in SmoothHD theme (EPX/Scale2x 64x64 texture upscaling preserving crisp 32x32 logical footprints)
-  - Added animated GIF and Aseprite JSON theme importer plus live animated theme preview card in Options
+  - Added animated GIF and Aseprite JSON theme importer (plus drag-and-drop import) and live animated theme preview card in Options
+  - Upgraded Options & About dialogs to native-style Windows 11 Fluent UI (Dark/Light live sync, pill switches, accent sliders, Fluent ComboBoxes, Mood Presets & instant live preview)
+  - Added mouse grab/drag/remove for Desktop Toys, procedural Direct2D micro-emotes (Heart, Music, Alert), right-click penguin/toy context menus, and 240Hz fish-seeking fix
+  - Added automatic DXGI/Direct2D device-lost GPU pipeline recovery across sleep-wake, driver updates & monitor docks
   - Added GitHub Actions CI/Release workflow (.github/workflows/ci-release.yml)
 
 2.0 (Modern Windows 11 Rewrite)

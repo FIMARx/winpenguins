@@ -12,15 +12,16 @@ namespace WinPenguins.Platform;
 
 public sealed class OverlayHost : IDisposable
 {
-    private readonly ID3D11Device _d3dDevice;
-    private readonly ID3D11DeviceContext _d3dContext;
-    private readonly IDXGIFactory2 _dxgiFactory;
-    private readonly ID2D1Factory1 _d2dFactory;
-    private readonly ID2D1Device _d2dDevice;
-    private readonly ID2D1DeviceContext _d2dContext;
-    private readonly IDCompositionDevice _dcompDevice;
-    private readonly ID2D1SolidColorBrush _sharedBrush;
-    private GpuSpriteAtlas _gpuAtlas;
+    private ID3D11Device _d3dDevice = null!;
+    private ID3D11DeviceContext _d3dContext = null!;
+    private IDXGIFactory2 _dxgiFactory = null!;
+    private ID2D1Factory1 _d2dFactory = null!;
+    private ID2D1Device _d2dDevice = null!;
+    private ID2D1DeviceContext _d2dContext = null!;
+    private IDCompositionDevice _dcompDevice = null!;
+    private ID2D1SolidColorBrush _sharedBrush = null!;
+    private GpuSpriteAtlas _gpuAtlas = null!;
+    private SpriteCatalog _spriteCatalog;
 
     private readonly List<DCompOverlayWindow> _windows = [];
     private readonly HashSet<IntPtr> _ownHandles = [];
@@ -31,6 +32,7 @@ public sealed class OverlayHost : IDisposable
     private bool _visible = true;
     private bool _desktopZOrderDirty = true;
     private long _lastZOrderCheckTick;
+    private long _lastRecoveryTick;
     private Func<int, int, bool>? _pointHitTest;
 
     public IReadOnlyList<Screen> ActiveScreens => _activeScreens;
@@ -38,9 +40,17 @@ public sealed class OverlayHost : IDisposable
     public event Action<int, int>? MouseDown;
     public event Action<int, int>? MouseMove;
     public event Action<int, int>? MouseUp;
+    public event Action<int, int>? RightClick;
     public event Action? CaptureLost;
 
     public OverlayHost(AppSettings settings, SpriteCatalog spriteCatalog)
+    {
+        _spriteCatalog = spriteCatalog;
+        InitializeGpuPipeline();
+        Rebuild(settings);
+    }
+
+    private void InitializeGpuPipeline()
     {
         (_d3dDevice, _d3dContext) = CreateD3D11Device();
         using IDXGIDevice dxgiDevice = _d3dDevice.QueryInterface<IDXGIDevice>();
@@ -55,9 +65,7 @@ public sealed class OverlayHost : IDisposable
 
         _dcompDevice = DComp.DCompositionCreateDevice<IDCompositionDevice>(dxgiDevice);
         _sharedBrush = _d2dContext.CreateSolidColorBrush(new Color4(1f, 1f, 1f, 1f));
-        _gpuAtlas = new GpuSpriteAtlas(_d2dContext, spriteCatalog);
-
-        Rebuild(settings);
+        _gpuAtlas = new GpuSpriteAtlas(_d2dContext, _spriteCatalog);
     }
 
     public void Rebuild(AppSettings settings)
@@ -92,6 +100,7 @@ public sealed class OverlayHost : IDisposable
             win.MouseDownOnOverlay += OnWindowMouseDown;
             win.MouseMoveOnOverlay += OnWindowMouseMove;
             win.MouseUpOnOverlay += OnWindowMouseUp;
+            win.RightClickOnOverlay += OnWindowRightClick;
             win.MouseCaptureLost += OnWindowCaptureLost;
             _windows.Add(win);
             _ownHandles.Add(win.Handle);
@@ -160,6 +169,7 @@ public sealed class OverlayHost : IDisposable
 
     public void ReloadCatalog(SpriteCatalog spriteCatalog)
     {
+        _spriteCatalog = spriteCatalog;
         var nextAtlas = new GpuSpriteAtlas(_d2dContext, spriteCatalog);
         GpuSpriteAtlas previous = _gpuAtlas;
         _gpuAtlas = nextAtlas;
@@ -246,6 +256,7 @@ public sealed class OverlayHost : IDisposable
     private void OnWindowMouseDown(int x, int y) => MouseDown?.Invoke(x, y);
     private void OnWindowMouseMove(int x, int y) => MouseMove?.Invoke(x, y);
     private void OnWindowMouseUp(int x, int y) => MouseUp?.Invoke(x, y);
+    private void OnWindowRightClick(int x, int y) => RightClick?.Invoke(x, y);
     private void OnWindowCaptureLost() => CaptureLost?.Invoke();
 
     public void RenderAll(
@@ -260,9 +271,49 @@ public sealed class OverlayHost : IDisposable
             return;
         }
 
+        bool needsRecovery = false;
         for (int i = 0; i < _windows.Count; i++)
         {
-            _windows[i].RenderFrame(penguins, _gpuAtlas, opacity, forceRedraw, toys, snow, _sharedBrush);
+            if (!_windows[i].RenderFrame(penguins, _gpuAtlas, opacity, forceRedraw, toys, snow, _sharedBrush))
+            {
+                needsRecovery = true;
+                break;
+            }
+        }
+
+        if (needsRecovery && TryRecoverGpuPipeline())
+        {
+            for (int i = 0; i < _windows.Count; i++)
+            {
+                _windows[i].RenderFrame(penguins, _gpuAtlas, opacity, forceRedraw: true, toys, snow, _sharedBrush);
+            }
+        }
+    }
+
+    public bool TryRecoverGpuPipeline()
+    {
+        long now = Environment.TickCount64;
+        if (now - _lastRecoveryTick < 400)
+        {
+            return false;
+        }
+
+        _lastRecoveryTick = now;
+        try
+        {
+            DisposeWindows();
+            DisposeGpuResources();
+            InitializeGpuPipeline();
+            Rebuild(new AppSettings
+            {
+                LayerMode = _layerMode,
+                PrimaryMonitorOnly = _primaryOnly
+            });
+            return true;
+        }
+        catch
+        {
+            return false;
         }
     }
 
@@ -354,6 +405,7 @@ public sealed class OverlayHost : IDisposable
             win.MouseDownOnOverlay -= OnWindowMouseDown;
             win.MouseMoveOnOverlay -= OnWindowMouseMove;
             win.MouseUpOnOverlay -= OnWindowMouseUp;
+            win.RightClickOnOverlay -= OnWindowRightClick;
             win.MouseCaptureLost -= OnWindowCaptureLost;
             win.Dispose();
         }
@@ -363,9 +415,8 @@ public sealed class OverlayHost : IDisposable
         _activeScreens.Clear();
     }
 
-    public void Dispose()
+    private void DisposeGpuResources()
     {
-        DisposeWindows();
         _gpuAtlas.Dispose();
         _sharedBrush.Dispose();
         _dcompDevice.Dispose();
@@ -375,5 +426,11 @@ public sealed class OverlayHost : IDisposable
         _dxgiFactory.Dispose();
         _d3dContext.Dispose();
         _d3dDevice.Dispose();
+    }
+
+    public void Dispose()
+    {
+        DisposeWindows();
+        DisposeGpuResources();
     }
 }

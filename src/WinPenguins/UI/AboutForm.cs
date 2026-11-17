@@ -6,7 +6,7 @@ namespace WinPenguins.UI;
 
 public sealed class AboutForm : Form
 {
-    public AboutForm(Icon appIcon)
+    public AboutForm(Icon appIcon, string? statsSummary = null)
     {
         FluentPalette palette = FluentPalette.DetectCurrent();
         FluentUi.ApplyWindowChrome(this, palette);
@@ -95,6 +95,20 @@ public sealed class AboutForm : Form
         };
         repoLink.LinkClicked += (_, _) => OpenUrl("https://github.com/FIMARx/winpenguins");
         titlePanel.Controls.Add(repoLink);
+
+        if (!string.IsNullOrWhiteSpace(statsSummary))
+        {
+            titlePanel.Controls.Add(new Label
+            {
+                Text = statsSummary,
+                Font = new Font("Segoe UI", 8.25f),
+                ForeColor = palette.TextSecondary,
+                UseMnemonic = false,
+                AutoSize = true,
+                MaximumSize = new Size(420, 0),
+                Margin = new Padding(0, 6, 0, 0)
+            });
+        }
 
         header.Controls.Add(iconBox, 0, 0);
         header.Controls.Add(titlePanel, 1, 0);

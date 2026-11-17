@@ -20,6 +20,8 @@ internal static unsafe class NativeMethods
     public const int WM_MOUSEMOVE = 0x0200;
     public const int WM_LBUTTONDOWN = 0x0201;
     public const int WM_LBUTTONUP = 0x0202;
+    public const int WM_RBUTTONDOWN = 0x0204;
+    public const int WM_RBUTTONUP = 0x0205;
     public const int WM_CAPTURECHANGED = 0x0215;
     public const int WM_DPICHANGED = 0x02E0;
     public const int WM_HOTKEY = 0x0312;

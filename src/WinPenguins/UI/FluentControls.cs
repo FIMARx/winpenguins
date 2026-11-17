@@ -17,26 +17,45 @@ internal enum FluentNavIcon
 
 internal sealed class FluentPalette
 {
-    public bool IsDark { get; }
-    public Color WindowBg { get; }
-    public Color SidebarBg { get; }
-    public Color CardBg { get; }
-    public Color CardBorder { get; }
-    public Color Divider { get; }
-    public Color NavHover { get; }
-    public Color NavSelected { get; }
-    public Color ControlBg { get; }
-    public Color ControlHover { get; }
-    public Color ControlBorder { get; }
-    public Color Accent { get; }
-    public Color AccentHover { get; }
-    public Color AccentText { get; }
-    public Color TextPrimary { get; }
-    public Color TextSecondary { get; }
-    public Color SuccessText { get; }
-    public Color DangerText { get; }
+    public bool IsDark { get; private set; }
+    public Color WindowBg { get; private set; }
+    public Color SidebarBg { get; private set; }
+    public Color CardBg { get; private set; }
+    public Color CardBorder { get; private set; }
+    public Color Divider { get; private set; }
+    public Color NavHover { get; private set; }
+    public Color NavSelected { get; private set; }
+    public Color ControlBg { get; private set; }
+    public Color ControlHover { get; private set; }
+    public Color ControlBorder { get; private set; }
+    public Color Accent { get; private set; }
+    public Color AccentHover { get; private set; }
+    public Color AccentText { get; private set; }
+    public Color TextPrimary { get; private set; }
+    public Color TextSecondary { get; private set; }
+    public Color SuccessText { get; private set; }
+    public Color DangerText { get; private set; }
 
     private FluentPalette(bool isDark)
+    {
+        ApplyMode(isDark);
+    }
+
+    public static FluentPalette DetectCurrent() => new(IsSystemDarkMode());
+
+    public bool RefreshFromSystem()
+    {
+        bool dark = IsSystemDarkMode();
+        if (dark == IsDark)
+        {
+            return false;
+        }
+
+        ApplyMode(dark);
+        return true;
+    }
+
+    private void ApplyMode(bool isDark)
     {
         IsDark = isDark;
         if (isDark)
@@ -81,8 +100,6 @@ internal sealed class FluentPalette
         }
     }
 
-    public static FluentPalette DetectCurrent() => new(IsSystemDarkMode());
-
     private static bool IsSystemDarkMode()
     {
         try
@@ -124,7 +141,7 @@ internal static class FluentUi
             }
             catch
             {
-                // Non-DWM / downlevel OS fallback: standard caption remains safe.
+                // Non-DWM / downlevel OS fallback.
             }
         }
 
@@ -132,6 +149,21 @@ internal static class FluentUi
         if (form.IsHandleCreated)
         {
             ApplyDwm();
+        }
+    }
+
+    public static void ApplyDwmOnly(Form form, FluentPalette palette)
+    {
+        form.BackColor = palette.WindowBg;
+        form.ForeColor = palette.TextPrimary;
+        if (!form.IsHandleCreated) return;
+        try
+        {
+            int dark = palette.IsDark ? 1 : 0;
+            NativeMethods.DwmSetWindowAttribute(form.Handle, NativeMethods.DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, sizeof(int));
+        }
+        catch
+        {
         }
     }
 
@@ -148,13 +180,6 @@ internal static class FluentUi
         path.AddArc(bounds.X, bounds.Bottom - d, d, d, 90, 90);
         path.CloseFigure();
         return path;
-    }
-
-    public static void StyleComboBox(ComboBox combo, FluentPalette palette)
-    {
-        combo.FlatStyle = palette.IsDark ? FlatStyle.Flat : FlatStyle.Standard;
-        combo.BackColor = palette.ControlBg;
-        combo.ForeColor = palette.TextPrimary;
     }
 
     public static Control WrapTextBox(TextBox box, FluentPalette palette, Padding? margin = null, int height = 0)
@@ -211,12 +236,73 @@ internal static class FluentUi
             g.SmoothingMode = SmoothingMode.AntiAlias;
             var rect = new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f);
             Color fill = _box.Enabled ? _palette.ControlBg : _palette.CardBg;
+            _box.BackColor = fill;
+            _box.ForeColor = _box.Enabled ? _palette.TextPrimary : _palette.TextSecondary;
             using GraphicsPath path = CreateRoundRect(rect, 5f);
             using var brush = new SolidBrush(fill);
             using var pen = new Pen(_focused ? _palette.Accent : _palette.ControlBorder, _focused ? 1.5f : 1f);
             g.FillPath(brush, path);
             g.DrawPath(pen, path);
         }
+    }
+}
+
+internal sealed class FluentComboBox : ComboBox
+{
+    private readonly FluentPalette _palette;
+
+    public FluentComboBox(FluentPalette palette)
+    {
+        _palette = palette;
+        FlatStyle = FlatStyle.Flat;
+        DrawMode = DrawMode.OwnerDrawFixed;
+        ItemHeight = 24;
+        BackColor = palette.ControlBg;
+        ForeColor = palette.TextPrimary;
+    }
+
+    protected override void OnDrawItem(DrawItemEventArgs e)
+    {
+        Graphics g = e.Graphics;
+        bool editBox = (e.State & DrawItemState.ComboBoxEdit) != 0;
+        bool selected = (e.State & DrawItemState.Selected) != 0 && !editBox;
+        bool disabled = (e.State & DrawItemState.Disabled) != 0 || !Enabled;
+
+        Color bg = selected
+            ? _palette.NavSelected
+            : (disabled ? _palette.CardBg : _palette.ControlBg);
+        Color fg = disabled ? _palette.TextSecondary : _palette.TextPrimary;
+
+        using (var bgBrush = new SolidBrush(bg))
+        {
+            g.FillRectangle(bgBrush, e.Bounds);
+        }
+
+        if (selected)
+        {
+            using var pillBrush = new SolidBrush(_palette.Accent);
+            g.FillRectangle(pillBrush, e.Bounds.X + 2, e.Bounds.Y + 4, 3, Math.Max(4, e.Bounds.Height - 8));
+        }
+
+        if (e.Index >= 0 && e.Index < Items.Count)
+        {
+            string text = GetItemText(Items[e.Index]) ?? string.Empty;
+            var textRect = new Rectangle(e.Bounds.X + 8, e.Bounds.Y, Math.Max(0, e.Bounds.Width - 10), e.Bounds.Height);
+            TextRenderer.DrawText(
+                g,
+                text,
+                Font,
+                textRect,
+                fg,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+        }
+    }
+
+    public void SyncColors()
+    {
+        BackColor = _palette.ControlBg;
+        ForeColor = _palette.TextPrimary;
+        Invalidate();
     }
 }
 
@@ -736,13 +822,10 @@ internal sealed class FluentNavButton : Control
 
         float x = box.X;
         float y = box.Y;
-        float w = box.Width;
-        float h = box.Height;
 
         switch (icon)
         {
             case FluentNavIcon.Penguins:
-                // Crisp stylized penguin silhouette / badge
                 g.DrawEllipse(pen, x + 3f, y + 1f, 10f, 13f);
                 g.FillEllipse(fill, x + 6f, y + 4.5f, 1.6f, 1.6f);
                 g.FillEllipse(fill, x + 8.6f, y + 4.5f, 1.6f, 1.6f);
@@ -751,14 +834,12 @@ internal sealed class FluentNavButton : Control
                 break;
 
             case FluentNavIcon.Toys:
-                // Four-point sparkle & fish/ball icon
                 g.DrawEllipse(pen, x + 1.5f, y + 4.5f, 9f, 9f);
                 g.DrawLine(pen, x + 12f, y + 1.5f, x + 12f, y + 6.5f);
                 g.DrawLine(pen, x + 9.5f, y + 4f, x + 14.5f, y + 4f);
                 break;
 
             case FluentNavIcon.Audio:
-                // Speaker + sound wave
                 g.DrawPolygon(pen,
                 [
                     new PointF(x + 2f, y + 6f),
@@ -773,14 +854,12 @@ internal sealed class FluentNavButton : Control
                 break;
 
             case FluentNavIcon.Display:
-                // Dual-screen monitor outline
                 g.DrawRectangle(pen, x + 1.5f, y + 2.5f, 13f, 9f);
                 g.DrawLine(pen, x + 5f, y + 14f, x + 11f, y + 14f);
                 g.DrawLine(pen, x + 8f, y + 11.5f, x + 8f, y + 14f);
                 break;
 
             case FluentNavIcon.Themes:
-                // Palette / theme swatch
                 g.DrawEllipse(pen, x + 1.5f, y + 1.5f, 13f, 13f);
                 g.FillEllipse(fill, x + 5f, y + 4.5f, 2f, 2f);
                 g.FillEllipse(fill, x + 9.5f, y + 4.5f, 2f, 2f);

@@ -3,6 +3,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
+using Microsoft.Win32;
 using WinPenguins.Assets;
 using WinPenguins.Config;
 using WinPenguins.Engine;
@@ -27,9 +28,19 @@ public sealed class OptionsForm : Form
     private readonly SoundPlayerService _soundPlayer;
     private readonly FluentPalette _palette;
     private readonly System.Windows.Forms.Timer _previewTimer;
+    private readonly System.Windows.Forms.Timer _liveApplyTimer;
     private readonly List<Bitmap> _previewFrames = [];
+    private readonly List<Control> _windowBgControls = [];
+    private readonly List<Control> _sidebarBgControls = [];
+    private readonly List<Control> _cardBgControls = [];
+    private readonly List<Control> _dividerControls = [];
+    private readonly List<Label> _primaryLabels = [];
+    private readonly List<Label> _secondaryLabels = [];
+    private readonly List<Label> _accentLabels = [];
+    private readonly List<FluentComboBox> _styledCombos = [];
     private int _previewFrameIndex;
     private string _previewThemeName = "Classic";
+    private bool _loadingSettings;
 
     private readonly Font _titleFont = new("Segoe UI Semibold", 15f);
     private readonly Font _sectionFont = new("Segoe UI Semibold", 9.75f);
@@ -126,6 +137,7 @@ public sealed class OptionsForm : Form
             RowCount = 2,
             BackColor = _palette.WindowBg
         };
+        _windowBgControls.Add(rootLayout);
         rootLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         rootLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
@@ -136,6 +148,7 @@ public sealed class OptionsForm : Form
             RowCount = 1,
             Margin = new Padding(0)
         };
+        _windowBgControls.Add(mainSplit);
         mainSplit.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 218));
         mainSplit.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
@@ -146,6 +159,7 @@ public sealed class OptionsForm : Form
             BackColor = _palette.SidebarBg,
             Padding = new Padding(12, 16, 12, 12)
         };
+        _sidebarBgControls.Add(sidebar);
         sidebar.Paint += (_, e) =>
         {
             using var pen = new Pen(_palette.Divider, 1f);
@@ -159,6 +173,7 @@ public sealed class OptionsForm : Form
             RowCount = 3,
             BackColor = _palette.SidebarBg
         };
+        _sidebarBgControls.Add(sidebarStack);
         sidebarStack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         sidebarStack.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         sidebarStack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -171,6 +186,7 @@ public sealed class OptionsForm : Form
             Margin = new Padding(4, 0, 4, 18),
             BackColor = _palette.SidebarBg
         };
+        _sidebarBgControls.Add(brandRow);
         brandRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         brandRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
@@ -182,6 +198,7 @@ public sealed class OptionsForm : Form
             Margin = new Padding(0, 2, 10, 0),
             BackColor = _palette.SidebarBg
         };
+        _sidebarBgControls.Add(brandIcon);
         var brandTextPanel = new TableLayoutPanel
         {
             AutoSize = true,
@@ -189,22 +206,27 @@ public sealed class OptionsForm : Form
             RowCount = 2,
             BackColor = _palette.SidebarBg
         };
-        brandTextPanel.Controls.Add(new Label
+        _sidebarBgControls.Add(brandTextPanel);
+        var brandTitleLbl = new Label
         {
             Text = "WinPenguins",
             Font = _brandTitleFont,
             ForeColor = _palette.TextPrimary,
             AutoSize = true,
             Margin = new Padding(0)
-        }, 0, 0);
-        brandTextPanel.Controls.Add(new Label
+        };
+        _primaryLabels.Add(brandTitleLbl);
+        brandTextPanel.Controls.Add(brandTitleLbl, 0, 0);
+        var brandSubLbl = new Label
         {
             Text = "v2.1 · Windows 11",
             Font = _rowDescFont,
             ForeColor = _palette.TextSecondary,
             AutoSize = true,
             Margin = new Padding(0)
-        }, 0, 1);
+        };
+        _secondaryLabels.Add(brandSubLbl);
+        brandTextPanel.Controls.Add(brandSubLbl, 0, 1);
         brandRow.Controls.Add(brandIcon, 0, 0);
         brandRow.Controls.Add(brandTextPanel, 1, 0);
         sidebarStack.Controls.Add(brandRow, 0, 0);
@@ -216,17 +238,20 @@ public sealed class OptionsForm : Form
             ColumnCount = 1,
             BackColor = _palette.SidebarBg
         };
+        _sidebarBgControls.Add(navList);
         sidebarStack.Controls.Add(navList, 0, 1);
 
-        sidebarStack.Controls.Add(new Label
+        var sidebarTipLbl = new Label
         {
-            Text = "Tip: Drag any penguin cleanly across monitors, or open the tray menu for quick actions.",
+            Text = "Changes preview live. Click Cancel anytime to revert.",
             Font = _rowDescFont,
             ForeColor = _palette.TextSecondary,
             MaximumSize = new Size(188, 0),
             AutoSize = true,
             Margin = new Padding(6, 12, 6, 4)
-        }, 0, 2);
+        };
+        _secondaryLabels.Add(sidebarTipLbl);
+        sidebarStack.Controls.Add(sidebarTipLbl, 0, 2);
 
         sidebar.Controls.Add(sidebarStack);
         mainSplit.Controls.Add(sidebar, 0, 0);
@@ -236,6 +261,7 @@ public sealed class OptionsForm : Form
             Dock = DockStyle.Fill,
             BackColor = _palette.WindowBg
         };
+        _windowBgControls.Add(contentHost);
         mainSplit.Controls.Add(contentHost, 1, 0);
 
         // ===========================
@@ -243,6 +269,31 @@ public sealed class OptionsForm : Form
         // ===========================
         TableLayoutPanel page1 = CreatePage(contentHost, "Penguins & Motion", "Control colony population, movement pace, appearance, and playful physics.");
         int p1Row = 1;
+
+        AddSectionHeader(page1, ref p1Row, "Mood Presets");
+        TableLayoutPanel presetRows = AddCard(page1, ref p1Row);
+        var presetStrip = new TableLayoutPanel
+        {
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Dock = DockStyle.Top,
+            ColumnCount = 5,
+            RowCount = 1,
+            BackColor = _palette.CardBg,
+            Margin = new Padding(0, 2, 0, 2)
+        };
+        _cardBgControls.Add(presetStrip);
+        for (int i = 0; i < 4; i++)
+        {
+            presetStrip.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        }
+        presetStrip.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        presetStrip.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        presetStrip.Controls.Add(CreatePresetButton("Chill Study", ApplyChillStudyPreset), 0, 0);
+        presetStrip.Controls.Add(CreatePresetButton("Winter Wonderland", ApplyWinterPreset), 1, 0);
+        presetStrip.Controls.Add(CreatePresetButton("Party Mode", ApplyPartyPreset), 2, 0);
+        presetStrip.Controls.Add(CreatePresetButton("Minimal Taskbar", ApplyMinimalPreset), 3, 0);
+        presetRows.Controls.Add(presetStrip, 0, 0);
 
         AddSectionHeader(page1, ref p1Row, "Colony");
         TableLayoutPanel colonyRows = AddCard(page1, ref p1Row);
@@ -401,6 +452,7 @@ public sealed class OptionsForm : Form
             new ComboItem<SpriteScaleMode>(SpriteScaleMode.X2, "200% (64×64 Sharp)"),
             new ComboItem<SpriteScaleMode>(SpriteScaleMode.X3, "300% (96×96 Big)")
         });
+        _scaleCombo.SelectedIndexChanged += (_, _) => ScheduleLiveApply();
         AddControlRow(renderRows, ref rRow, "Sprite size scale", "Per-monitor Auto scales penguins dynamically per screen", _scaleCombo);
         AddDivider(renderRows, ref rRow);
 
@@ -410,6 +462,7 @@ public sealed class OptionsForm : Form
             new ComboItem<OverlayLayerMode>(OverlayLayerMode.AboveWindows, "Above windows (Overlay)"),
             new ComboItem<OverlayLayerMode>(OverlayLayerMode.DesktopOnly, "Desktop wallpaper level only")
         });
+        _layerCombo.SelectedIndexChanged += (_, _) => ScheduleLiveApply();
         AddControlRow(renderRows, ref rRow, "Overlay layer", "Choose whether penguins walk on open app windows or only on desktop", _layerCombo);
         AddDivider(renderRows, ref rRow);
 
@@ -420,6 +473,7 @@ public sealed class OptionsForm : Form
             new ComboItem<int>(120, "120 FPS (Recommended)"),
             new ComboItem<int>(240, "240 FPS (Ultra smooth)")
         });
+        _fpsCombo.SelectedIndexChanged += (_, _) => ScheduleLiveApply();
         AddControlRow(renderRows, ref rRow, "Render frame rate", "High-resolution DirectComposition refresh target", _fpsCombo);
 
         AddSectionHeader(page4, ref p4Row, "Windows & Startup");
@@ -480,7 +534,11 @@ public sealed class OptionsForm : Form
         _themeCombo = CreateStyledComboBox(ComboBoxStyle.DropDownList, 280);
         _themeCombo.Dock = DockStyle.Top;
         _themeCombo.Margin = new Padding(0, 0, 0, 10);
-        _themeCombo.SelectedIndexChanged += (_, _) => RefreshThemePreview();
+        _themeCombo.SelectedIndexChanged += (_, _) =>
+        {
+            RefreshThemePreview();
+            ScheduleLiveApply();
+        };
         themeLeft.Controls.Add(_themeCombo, 0, 1);
 
         var themeActions = new FlowLayoutPanel
@@ -511,15 +569,25 @@ public sealed class OptionsForm : Form
         themeActions.Controls.Add(openThemesBtn);
         themeLeft.Controls.Add(themeActions, 0, 2);
 
-        themeLeft.Controls.Add(new Label
+        var themeHelpLbl = new Label
         {
-            Text = $"Custom packs folder:\r\n{ThemeDiscovery.UserThemesDirectory}",
+            Text = $"Tip: Drag & drop a .gif or Aseprite .json here, or drop packs into:\r\n{ThemeDiscovery.UserThemesDirectory}",
             Font = _rowDescFont,
             ForeColor = _palette.TextSecondary,
+            UseMnemonic = false,
             AutoSize = true,
             MaximumSize = new Size(440, 0),
             Margin = new Padding(0, 2, 0, 0)
-        }, 0, 3);
+        };
+        _secondaryLabels.Add(themeHelpLbl);
+        themeLeft.Controls.Add(themeHelpLbl, 0, 3);
+
+        if (themeRows.Parent is Control themeCard)
+        {
+            themeCard.AllowDrop = true;
+            themeCard.DragEnter += OnThemeCardDragEnter;
+            themeCard.DragDrop += OnThemeCardDragDrop;
+        }
 
         var previewStage = new Panel
         {
@@ -596,6 +664,7 @@ public sealed class OptionsForm : Form
             Padding = new Padding(18, 12, 22, 12),
             BackColor = _palette.SidebarBg
         };
+        _sidebarBgControls.Add(footerPanel);
         footerPanel.Paint += (_, e) =>
         {
             using var pen = new Pen(_palette.Divider, 1f);
@@ -608,6 +677,7 @@ public sealed class OptionsForm : Form
             ColumnCount = 4,
             BackColor = _palette.SidebarBg
         };
+        _sidebarBgControls.Add(buttonBar);
         buttonBar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         buttonBar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         buttonBar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -615,7 +685,25 @@ public sealed class OptionsForm : Form
 
         var resetBtn = CreateSecondaryButton("Reset Defaults", 122);
         resetBtn.Anchor = AnchorStyles.Left;
-        resetBtn.Click += (_, _) => LoadFromSettings(new AppSettings());
+        resetBtn.Click += (_, _) =>
+        {
+            LoadFromSettings(new AppSettings());
+            ScheduleLiveApply();
+        };
+
+        _previewTimer = new System.Windows.Forms.Timer { Interval = 95 };
+        _previewTimer.Tick += OnPreviewTimerTick;
+
+        _liveApplyTimer = new System.Windows.Forms.Timer { Interval = 110 };
+        _liveApplyTimer.Tick += (_, _) =>
+        {
+            _liveApplyTimer.Stop();
+            if (!IsDisposed)
+            {
+                ApplyCurrent();
+                _applied = true;
+            }
+        };
 
         var okBtn = new FluentButton(_palette, primary: true)
         {
@@ -624,7 +712,11 @@ public sealed class OptionsForm : Form
             Size = new Size(92, 32),
             Margin = new Padding(8, 0, 0, 0)
         };
-        okBtn.Click += (_, _) => ApplyCurrent();
+        okBtn.Click += (_, _) =>
+        {
+            _liveApplyTimer.Stop();
+            ApplyCurrent();
+        };
 
         var cancelBtn = CreateSecondaryButton("Cancel", 92);
         cancelBtn.DialogResult = DialogResult.Cancel;
@@ -634,6 +726,7 @@ public sealed class OptionsForm : Form
         applyBtn.Margin = new Padding(8, 0, 0, 0);
         applyBtn.Click += (_, _) =>
         {
+            _liveApplyTimer.Stop();
             ApplyCurrent();
             _applied = true;
         };
@@ -651,8 +744,7 @@ public sealed class OptionsForm : Form
         AcceptButton = okBtn;
         CancelButton = cancelBtn;
 
-        _previewTimer = new System.Windows.Forms.Timer { Interval = 95 };
-        _previewTimer.Tick += OnPreviewTimerTick;
+        SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
 
         PopulateThemeList(currentSettings.ThemeName);
         LoadFromSettings(currentSettings);
@@ -661,6 +753,7 @@ public sealed class OptionsForm : Form
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
         _previewTimer.Stop();
+        _liveApplyTimer.Stop();
         if (DialogResult == DialogResult.Cancel && _applied)
         {
             _applied = false;
@@ -674,8 +767,11 @@ public sealed class OptionsForm : Form
     {
         if (disposing)
         {
+            SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
             _previewTimer.Stop();
             _previewTimer.Dispose();
+            _liveApplyTimer.Stop();
+            _liveApplyTimer.Dispose();
             _previewPictureBox.Image = null;
             ClearPreviewFrames();
             _titleFont.Dispose();
@@ -745,52 +841,60 @@ public sealed class OptionsForm : Form
 
     private void LoadFromSettings(AppSettings s)
     {
-        AppSettings copy = s.Clone();
-        copy.Normalize();
+        _loadingSettings = true;
+        try
+        {
+            AppSettings copy = s.Clone();
+            copy.Normalize();
 
-        _countSlider.Value = copy.PenguinCount;
-        _speedSlider.Value = AppSettings.MaxFrameDelayMs - copy.FrameDelayMs;
-        _alphaSlider.Value = copy.Opacity;
-        _santaSlider.Value = copy.SantaPercent;
-        _idlePausesToggle.Checked = copy.EnableIdlePauses;
-        _parachutesToggle.Checked = copy.EnableParachutes;
-        _neverSplatToggle.Checked = copy.NeverSplat;
-        _splatSlider.Value = Math.Clamp(copy.SplatDistance, _splatSlider.Minimum, _splatSlider.Maximum);
-        _splatSlider.Enabled = !copy.NeverSplat;
+            _countSlider.Value = copy.PenguinCount;
+            _speedSlider.Value = AppSettings.MaxFrameDelayMs - copy.FrameDelayMs;
+            _alphaSlider.Value = copy.Opacity;
+            _santaSlider.Value = copy.SantaPercent;
+            _idlePausesToggle.Checked = copy.EnableIdlePauses;
+            _parachutesToggle.Checked = copy.EnableParachutes;
+            _neverSplatToggle.Checked = copy.NeverSplat;
+            _splatSlider.Value = Math.Clamp(copy.SplatDistance, _splatSlider.Minimum, _splatSlider.Maximum);
+            _splatSlider.Enabled = !copy.NeverSplat;
 
-        _interactiveMouseToggle.Checked = copy.InteractiveMouse;
-        _cursorPerchToggle.Checked = copy.CursorPerch;
-        _cursorAvoidToggle.Checked = copy.CursorAvoidance;
-        _snowToggle.Checked = copy.EnableSnow;
+            _interactiveMouseToggle.Checked = copy.InteractiveMouse;
+            _cursorPerchToggle.Checked = copy.CursorPerch;
+            _cursorAvoidToggle.Checked = copy.CursorAvoidance;
+            _snowToggle.Checked = copy.EnableSnow;
 
-        _musicDanceToggle.Checked = copy.EnableMusicDancing;
-        _soundEnabledToggle.Checked = copy.SoundEnabled;
-        _actionSoundsToggle.Checked = copy.EnableActionSounds;
-        _volumeSlider.Value = copy.SoundVolume;
-        SelectComboValue(_builtInSoundCombo, copy.BuiltInSound);
-        _customSoundBox.Text = copy.CustomSoundPath;
-        _hideFullscreenToggle.Checked = copy.HideInFullscreen;
-        _pauseFocusToggle.Checked = copy.PauseOnPresentationOrFocus;
-        _pauseBatterySaverToggle.Checked = copy.PauseOnBatterySaver;
-        _pauseRecordingToggle.Checked = copy.PauseWhenRecording;
-        _recordingProcBox.Text = copy.RecordingProcesses;
-        _recordingProcBox.Enabled = copy.PauseWhenRecording;
+            _musicDanceToggle.Checked = copy.EnableMusicDancing;
+            _soundEnabledToggle.Checked = copy.SoundEnabled;
+            _actionSoundsToggle.Checked = copy.EnableActionSounds;
+            _volumeSlider.Value = copy.SoundVolume;
+            SelectComboValue(_builtInSoundCombo, copy.BuiltInSound);
+            _customSoundBox.Text = copy.CustomSoundPath;
+            _hideFullscreenToggle.Checked = copy.HideInFullscreen;
+            _pauseFocusToggle.Checked = copy.PauseOnPresentationOrFocus;
+            _pauseBatterySaverToggle.Checked = copy.PauseOnBatterySaver;
+            _pauseRecordingToggle.Checked = copy.PauseWhenRecording;
+            _recordingProcBox.Text = copy.RecordingProcesses;
+            _recordingProcBox.Enabled = copy.PauseWhenRecording;
 
-        SelectComboValue(_scaleCombo, copy.ScaleMode);
-        SelectComboValue(_layerCombo, copy.LayerMode);
-        SelectComboValue(_fpsCombo, copy.TargetFps);
-        _primaryOnlyToggle.Checked = copy.PrimaryMonitorOnly;
-        _ignoreMaxToggle.Checked = copy.IgnoreMaximizedWindows;
-        _startupToggle.Checked = copy.LaunchAtStartup;
-        _ignoredProcessesBox.Text = copy.IgnoredProcesses;
+            SelectComboValue(_scaleCombo, copy.ScaleMode);
+            SelectComboValue(_layerCombo, copy.LayerMode);
+            SelectComboValue(_fpsCombo, copy.TargetFps);
+            _primaryOnlyToggle.Checked = copy.PrimaryMonitorOnly;
+            _ignoreMaxToggle.Checked = copy.IgnoreMaximizedWindows;
+            _startupToggle.Checked = copy.LaunchAtStartup;
+            _ignoredProcessesBox.Text = copy.IgnoredProcesses;
 
-        PopulateThemeList(copy.ThemeName);
-        _enableHotkeyToggle.Checked = copy.EnablePauseHotkey;
-        _hotkeyCombo.Text = copy.PauseHotkey;
-        _hotkeyCombo.Enabled = copy.EnablePauseHotkey;
+            PopulateThemeList(copy.ThemeName);
+            _enableHotkeyToggle.Checked = copy.EnablePauseHotkey;
+            _hotkeyCombo.Text = copy.PauseHotkey;
+            _hotkeyCombo.Enabled = copy.EnablePauseHotkey;
 
-        UpdateHotkeyStatusLabel();
-        UpdateAllSliderLabels();
+            UpdateHotkeyStatusLabel();
+            UpdateAllSliderLabels();
+        }
+        finally
+        {
+            _loadingSettings = false;
+        }
     }
 
     private void PopulateThemeList(string selectedThemeName)
@@ -892,13 +996,57 @@ public sealed class OptionsForm : Form
             return;
         }
 
+        ImportThemeFile(dlg.FileName);
+    }
+
+    private void OnThemeCardDragEnter(object? sender, DragEventArgs e)
+    {
+        if (TryExtractThemeDropPath(e.Data, out _))
+        {
+            e.Effect = DragDropEffects.Copy;
+        }
+        else
+        {
+            e.Effect = DragDropEffects.None;
+        }
+    }
+
+    private void OnThemeCardDragDrop(object? sender, DragEventArgs e)
+    {
+        if (TryExtractThemeDropPath(e.Data, out string? path) && path != null)
+        {
+            ImportThemeFile(path);
+        }
+    }
+
+    private static bool TryExtractThemeDropPath(IDataObject? data, out string? path)
+    {
+        path = null;
+        if (data?.GetData(DataFormats.FileDrop) is string[] files && files.Length > 0)
+        {
+            foreach (string f in files)
+            {
+                if (f.EndsWith(".gif", StringComparison.OrdinalIgnoreCase) ||
+                    f.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+                {
+                    path = f;
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private void ImportThemeFile(string sourcePath)
+    {
         try
         {
-            (string themeName, string folderPath) = SpriteCatalog.ImportThemeFromGifOrAseprite(dlg.FileName);
+            (string themeName, string folderPath) = SpriteCatalog.ImportThemeFromGifOrAseprite(sourcePath);
             PopulateThemeList(themeName);
+            ScheduleLiveApply();
             MessageBox.Show(
                 this,
-                $"Imported theme '{themeName}' to:\r\n{folderPath}\r\n\r\nSelect Apply or OK to activate it now!",
+                $"Imported theme '{themeName}' to:\r\n{folderPath}\r\n\r\nIt is now selected and ready!",
                 "Theme Imported",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Information);
@@ -907,11 +1055,126 @@ public sealed class OptionsForm : Form
         {
             MessageBox.Show(
                 this,
-                $"Could not import theme from '{Path.GetFileName(dlg.FileName)}':\r\n{ex.Message}",
+                $"Could not import theme from '{Path.GetFileName(sourcePath)}':\r\n{ex.Message}",
                 "Import Failed",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
         }
+    }
+
+    private void ScheduleLiveApply()
+    {
+        if (_loadingSettings || _liveApplyTimer is null)
+        {
+            return;
+        }
+
+        _liveApplyTimer.Stop();
+        _liveApplyTimer.Start();
+    }
+
+    private void OnUserPreferenceChanged(object? sender, UserPreferenceChangedEventArgs e)
+    {
+        if (e.Category is UserPreferenceCategory.General or UserPreferenceCategory.Color or UserPreferenceCategory.Desktop)
+        {
+            if (IsHandleCreated && InvokeRequired)
+            {
+                BeginInvoke(ApplySystemThemeChange);
+            }
+            else if (!IsDisposed)
+            {
+                ApplySystemThemeChange();
+            }
+        }
+    }
+
+    private void ApplySystemThemeChange()
+    {
+        if (!_palette.RefreshFromSystem())
+        {
+            return;
+        }
+
+        FluentUi.ApplyDwmOnly(this, _palette);
+        for (int i = 0; i < _windowBgControls.Count; i++) _windowBgControls[i].BackColor = _palette.WindowBg;
+        for (int i = 0; i < _sidebarBgControls.Count; i++) _sidebarBgControls[i].BackColor = _palette.SidebarBg;
+        for (int i = 0; i < _cardBgControls.Count; i++) _cardBgControls[i].BackColor = _palette.CardBg;
+        for (int i = 0; i < _dividerControls.Count; i++) _dividerControls[i].BackColor = _palette.Divider;
+        for (int i = 0; i < _primaryLabels.Count; i++) _primaryLabels[i].ForeColor = _palette.TextPrimary;
+        for (int i = 0; i < _secondaryLabels.Count; i++) _secondaryLabels[i].ForeColor = _palette.TextSecondary;
+        for (int i = 0; i < _accentLabels.Count; i++) _accentLabels[i].ForeColor = _palette.Accent;
+        for (int i = 0; i < _styledCombos.Count; i++) _styledCombos[i].SyncColors();
+        UpdateHotkeyStatusLabel();
+        Invalidate(true);
+    }
+
+    private void ApplyMoodPreset(Action<AppSettings> mutate)
+    {
+        AppSettings next = BuildSettings();
+        mutate(next);
+        next.Normalize();
+        LoadFromSettings(next);
+        ScheduleLiveApply();
+    }
+
+    private void ApplyChillStudyPreset() => ApplyMoodPreset(s =>
+    {
+        s.PenguinCount = 6;
+        s.FrameDelayMs = 48;
+        s.Opacity = 230;
+        s.SantaPercent = 0;
+        s.EnableSnow = false;
+        s.CursorPerch = true;
+        s.CursorAvoidance = false;
+        s.PauseOnPresentationOrFocus = true;
+        s.EnableMusicDancing = true;
+    });
+
+    private void ApplyWinterPreset() => ApplyMoodPreset(s =>
+    {
+        s.PenguinCount = 14;
+        s.FrameDelayMs = 45;
+        s.Opacity = 255;
+        s.ThemeName = "SmoothHD";
+        s.SantaPercent = 35;
+        s.EnableSnow = true;
+        s.EnableParachutes = true;
+        s.NeverSplat = true;
+    });
+
+    private void ApplyPartyPreset() => ApplyMoodPreset(s =>
+    {
+        s.PenguinCount = 24;
+        s.FrameDelayMs = 34;
+        s.Opacity = 255;
+        s.EnableMusicDancing = true;
+        s.CursorPerch = true;
+        s.NeverSplat = true;
+        s.EnableActionSounds = true;
+    });
+
+    private void ApplyMinimalPreset() => ApplyMoodPreset(s =>
+    {
+        s.PenguinCount = 4;
+        s.FrameDelayMs = 50;
+        s.Opacity = 210;
+        s.IgnoreMaximizedWindows = true;
+        s.EnableSnow = false;
+        s.SoundEnabled = false;
+        s.EnableActionSounds = false;
+    });
+
+    private FluentButton CreatePresetButton(string label, Action onClick)
+    {
+        var btn = new FluentButton(_palette, primary: false)
+        {
+            Text = label,
+            AutoSize = true,
+            MinimumSize = new Size(106, 30),
+            Margin = new Padding(0, 0, 8, 2)
+        };
+        btn.Click += (_, _) => onClick();
+        return btn;
     }
 
     private void RefreshThemePreview()
@@ -1047,6 +1310,7 @@ public sealed class OptionsForm : Form
             BackColor = _palette.WindowBg,
             Visible = false
         };
+        _windowBgControls.Add(scrollHost);
 
         var stack = new TableLayoutPanel
         {
@@ -1055,6 +1319,7 @@ public sealed class OptionsForm : Form
             ColumnCount = 1,
             BackColor = _palette.WindowBg
         };
+        _windowBgControls.Add(stack);
         stack.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
         var header = new TableLayoutPanel
@@ -1065,7 +1330,8 @@ public sealed class OptionsForm : Form
             Margin = new Padding(0, 0, 0, 12),
             BackColor = _palette.WindowBg
         };
-        header.Controls.Add(new Label
+        _windowBgControls.Add(header);
+        var titleLbl = new Label
         {
             Text = title,
             Font = _titleFont,
@@ -1073,8 +1339,11 @@ public sealed class OptionsForm : Form
             UseMnemonic = false,
             AutoSize = true,
             Margin = new Padding(0, 0, 0, 2)
-        }, 0, 0);
-        header.Controls.Add(new Label
+        };
+        _primaryLabels.Add(titleLbl);
+        header.Controls.Add(titleLbl, 0, 0);
+
+        var subLbl = new Label
         {
             Text = subtitle,
             Font = _rowDescFont,
@@ -1082,7 +1351,9 @@ public sealed class OptionsForm : Form
             UseMnemonic = false,
             AutoSize = true,
             Margin = new Padding(0)
-        }, 0, 1);
+        };
+        _secondaryLabels.Add(subLbl);
+        header.Controls.Add(subLbl, 0, 1);
 
         stack.Controls.Add(header, 0, 0);
         scrollHost.Controls.Add(stack);
@@ -1101,6 +1372,7 @@ public sealed class OptionsForm : Form
             AutoSize = true,
             Margin = new Padding(2, 6, 0, 6)
         };
+        _primaryLabels.Add(lbl);
         page.Controls.Add(lbl, 0, row++);
     }
 
@@ -1113,6 +1385,7 @@ public sealed class OptionsForm : Form
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
             Height = 1
         };
+        _windowBgControls.Add(card);
         var rows = new TableLayoutPanel
         {
             Dock = DockStyle.Top,
@@ -1122,6 +1395,7 @@ public sealed class OptionsForm : Form
             ColumnCount = 1,
             BackColor = _palette.CardBg
         };
+        _cardBgControls.Add(rows);
         rows.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         card.Controls.Add(rows);
         page.Controls.Add(card, 0, row++);
@@ -1137,6 +1411,7 @@ public sealed class OptionsForm : Form
             BackColor = _palette.Divider,
             Margin = new Padding(0, 5, 0, 5)
         };
+        _dividerControls.Add(line);
         rows.Controls.Add(line, 0, row++);
     }
 
@@ -1157,6 +1432,7 @@ public sealed class OptionsForm : Form
             BackColor = _palette.CardBg,
             Margin = new Padding(0, 2, 0, 2)
         };
+        _cardBgControls.Add(rowGrid);
         rowGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         rowGrid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
@@ -1171,6 +1447,7 @@ public sealed class OptionsForm : Form
             Anchor = AnchorStyles.Right,
             Margin = new Padding(8, 4, 0, 0)
         };
+        _accentLabels.Add(valueLabel);
         rowGrid.Controls.Add(valueLabel, 1, 0);
 
         var slider = new FluentSlider(_palette)
@@ -1180,7 +1457,11 @@ public sealed class OptionsForm : Form
             Dock = DockStyle.Top,
             Margin = new Padding(0, 4, 0, 2)
         };
-        slider.ValueChanged += (_, _) => valueLabel.Text = formatter(slider.Value);
+        slider.ValueChanged += (_, _) =>
+        {
+            valueLabel.Text = formatter(slider.Value);
+            ScheduleLiveApply();
+        };
 
         rowGrid.Controls.Add(slider, 0, 1);
         rowGrid.SetColumnSpan(slider, 2);
@@ -1199,6 +1480,7 @@ public sealed class OptionsForm : Form
             BackColor = _palette.CardBg,
             Margin = new Padding(0, 2, 0, 2)
         };
+        _cardBgControls.Add(rowGrid);
         rowGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         rowGrid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
@@ -1208,6 +1490,7 @@ public sealed class OptionsForm : Form
             Anchor = AnchorStyles.Right,
             Margin = new Padding(12, 4, 0, 4)
         };
+        toggle.CheckedChanged += (_, _) => ScheduleLiveApply();
 
         void ToggleOnLabelClick(object? sender, EventArgs e)
         {
@@ -1238,6 +1521,7 @@ public sealed class OptionsForm : Form
             BackColor = _palette.CardBg,
             Margin = new Padding(0, 2, 0, 2)
         };
+        _cardBgControls.Add(rowGrid);
         rowGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         rowGrid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
@@ -1257,6 +1541,7 @@ public sealed class OptionsForm : Form
             BackColor = _palette.CardBg,
             Margin = new Padding(0, 2, 0, 2)
         };
+        _cardBgControls.Add(rowGrid);
         rowGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         rowGrid.Controls.Add(CreateTitleStack(title, subtitle), 0, 0);
         rowGrid.Controls.Add(bottomControl, 0, 1);
@@ -1273,7 +1558,8 @@ public sealed class OptionsForm : Form
             BackColor = _palette.CardBg,
             Margin = new Padding(0)
         };
-        stack.Controls.Add(new Label
+        _cardBgControls.Add(stack);
+        var titleLbl = new Label
         {
             Text = title,
             Font = _rowTitleFont,
@@ -1281,10 +1567,12 @@ public sealed class OptionsForm : Form
             UseMnemonic = false,
             AutoSize = true,
             Margin = new Padding(0, 1, 0, 1)
-        }, 0, 0);
+        };
+        _primaryLabels.Add(titleLbl);
+        stack.Controls.Add(titleLbl, 0, 0);
         if (!string.IsNullOrWhiteSpace(subtitle))
         {
-            stack.Controls.Add(new Label
+            var subLbl = new Label
             {
                 Text = subtitle,
                 Font = _rowDescFont,
@@ -1293,20 +1581,22 @@ public sealed class OptionsForm : Form
                 AutoSize = true,
                 MaximumSize = new Size(360, 0),
                 Margin = new Padding(0, 0, 0, 2)
-            }, 0, 1);
+            };
+            _secondaryLabels.Add(subLbl);
+            stack.Controls.Add(subLbl, 0, 1);
         }
         return stack;
     }
 
     private ComboBox CreateStyledComboBox(ComboBoxStyle DropDownStyle, int width)
     {
-        var combo = new ComboBox
+        var combo = new FluentComboBox(_palette)
         {
             DropDownStyle = DropDownStyle,
             Width = width,
             Font = Font
         };
-        FluentUi.StyleComboBox(combo, _palette);
+        _styledCombos.Add(combo);
         return combo;
     }
 

@@ -1614,4 +1614,88 @@ public sealed class NextLevelFeatureTests
         Assert.False(FocusAndRecordingMonitor.IsAnyProcessRunning(
             new HashSet<string>(["definitely_not_running_process_xyz"], StringComparer.OrdinalIgnoreCase)));
     }
+
+    [Fact]
+    public void DesktopToys_WalkerAt240HzSprintsWithoutFreezingAndEatsFish()
+    {
+        var world = new CollisionWorld([new Rectangle(0, 0, 1920, 1080)]);
+        var sim = new PenguinSimulation(world, scale: 1.0, rng: new Random(55));
+        var settings = new AppSettings
+        {
+            PenguinCount = 1,
+            FrameDelayMs = 45,
+            TargetFps = 240,
+            EnableIdlePauses = false,
+            EnableParachutes = false
+        };
+
+        sim.EnsureCount(1);
+        Penguin walker = sim.Penguins[0];
+        walker.StartingUp = false;
+        walker.SpeedMultiplier = 1.0;
+        walker.X = 400;
+        walker.Y = 1080 - walker.Height;
+        walker.SetAnimation(PenguinAnimationId.Walker, FacingDirection.Left);
+        walker.SetVelocity(-3.2, 0);
+
+        // Drop a fish 180px to the right on the floor and step at 240Hz (~4.16ms per frame).
+        DesktopToy fish = sim.Toys.SpawnToy(ToyKind.Fish, 580, 1080 - 14, 1.0);
+        for (int i = 0; i < 450 && fish.Active; i++)
+        {
+            sim.Step(settings, 4.167);
+        }
+
+        Assert.False(fish.Active, "240Hz walker should turn toward fish, keep moving continuously, and eat it without freezing.");
+        Assert.Equal(1, sim.FishEatenCount);
+        Assert.Equal(PenguinEmote.Heart, walker.Emote);
+        Assert.InRange(Math.Abs(walker.VelocityX), 2.8, 3.6);
+    }
+
+    [Fact]
+    public void DesktopToys_HitTestDragMovesToyAcrossMonitorsAndRemoveWorks()
+    {
+        var world = new CollisionWorld(
+            [new Rectangle(0, 0, 1920, 1080), new Rectangle(1920, 0, 1920, 1080)],
+            monitorScales: [1.0, 1.5]);
+        var sim = new PenguinSimulation(world, scale: 1.0, rng: new Random(5));
+
+        DesktopToy tramp = sim.Toys.SpawnToy(ToyKind.Trampoline, 400, 700, 1.0);
+        Assert.Same(tramp, sim.HitTestToy(410, 705));
+
+        sim.BeginToyGrab(tramp);
+        Assert.True(tramp.IsGrabbed);
+        sim.MoveToyGrab(tramp, 2200, 500);
+        Assert.True(tramp.X >= 2100);
+        Assert.Equal(1.5, tramp.Scale, precision: 3);
+
+        sim.ReleaseToyGrab(tramp);
+        Assert.False(tramp.IsGrabbed);
+
+        sim.RemoveToy(tramp);
+        Assert.Null(sim.HitTestToy(2200, 500));
+        Assert.Empty(sim.Toys.Toys);
+    }
+
+    [Fact]
+    public void PenguinEmotes_TriggerAndRelaxOverTime()
+    {
+        var p = new Penguin(100, 100, 3.2, 0, 1.0);
+        p.TriggerEmote(PenguinEmote.Music, 0.5);
+        Assert.Equal(PenguinEmote.Music, p.Emote);
+
+        p.RelaxVisualTransforms(300.0);
+        Assert.Equal(PenguinEmote.Music, p.Emote);
+
+        p.RelaxVisualTransforms(250.0);
+        Assert.Equal(PenguinEmote.None, p.Emote);
+    }
+
+    [Fact]
+    public void DCompOverlayWindow_DetectsDxgiDeviceLostHResults()
+    {
+        Assert.True(DCompOverlayWindow.IsDeviceLostHResult(unchecked((int)0x887A0005)));
+        Assert.True(DCompOverlayWindow.IsDeviceLostHResult(unchecked((int)0x887A0007)));
+        Assert.True(DCompOverlayWindow.IsDeviceLostHResult(unchecked((int)0x8899000C)));
+        Assert.False(DCompOverlayWindow.IsDeviceLostHResult(0));
+    }
 }

@@ -23,6 +23,8 @@ public sealed class DesktopToy
     public double Pulse { get; set; }
     public double AgeSeconds { get; set; }
     public bool Active { get; set; } = true;
+    public bool IsGrabbed { get; set; }
+    public bool Pinned { get; set; }
 
     public DesktopToy(int id, ToyKind kind, double x, double y, double scale)
     {
@@ -31,6 +33,7 @@ public sealed class DesktopToy
         X = x;
         Y = y;
         Scale = Math.Clamp(scale, 0.5, 4.0);
+        Pinned = kind is ToyKind.PortalA or ToyKind.PortalB;
         (Width, Height) = GetDimensions(kind, Scale);
     }
 
@@ -128,6 +131,12 @@ public sealed class ToySystem
                 toy.Pulse = Math.Max(0, toy.Pulse - dt * 3.5);
             }
 
+            if (toy.IsGrabbed || toy.Pinned)
+            {
+                toy.VelocityY = 0;
+                continue;
+            }
+
             Rectangle cur = toy.Bounds;
             if (!world.IsInsideDesktop(cur))
             {
@@ -190,6 +199,56 @@ public sealed class ToySystem
         }
 
         return best;
+    }
+
+    public DesktopToy? HitTest(int screenX, int screenY)
+    {
+        for (int i = _toys.Count - 1; i >= 0; i--)
+        {
+            DesktopToy t = _toys[i];
+            if (!t.Active)
+            {
+                continue;
+            }
+
+            Rectangle hitRect = Rectangle.Inflate(t.Bounds, 6, 6);
+            if (hitRect.Contains(screenX, screenY))
+            {
+                return t;
+            }
+        }
+
+        return null;
+    }
+
+    public void BeginGrab(DesktopToy toy)
+    {
+        toy.IsGrabbed = true;
+        toy.VelocityY = 0;
+        toy.Pulse = 0.6;
+    }
+
+    public void MoveGrab(DesktopToy toy, CollisionWorld world, int centerX, int centerY)
+    {
+        Rectangle desired = new(centerX - toy.Width / 2, centerY - toy.Height / 2, toy.Width, toy.Height);
+        Point safe = world.ClampInsideDesktop(desired);
+        toy.X = safe.X;
+        toy.Y = safe.Y;
+        toy.Scale = world.GetScaleAt(centerX, centerY, toy.Scale);
+        (toy.Width, toy.Height) = DesktopToy.GetDimensions(toy.Kind, toy.Scale);
+    }
+
+    public void ReleaseGrab(DesktopToy toy)
+    {
+        toy.IsGrabbed = false;
+        toy.VelocityY = 0;
+        toy.Pulse = 0.8;
+    }
+
+    public void Remove(DesktopToy toy)
+    {
+        toy.Active = false;
+        _toys.Remove(toy);
     }
 
     public DesktopToy? GetTwinPortal(ToyKind sourceKind)

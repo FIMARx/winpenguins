@@ -18,6 +18,9 @@ public sealed class PenguinSimulation
 
     public IReadOnlyList<Penguin> Penguins => _penguins;
     public double Scale => _scale;
+    public int FishEatenCount { get; private set; }
+    public int PortalJumpsCount { get; private set; }
+    public int TrampolineBouncesCount { get; private set; }
 
     public event Action<SoundEffectKind>? SoundRequested;
 
@@ -105,11 +108,23 @@ public sealed class PenguinSimulation
         return null;
     }
 
+    public DesktopToy? HitTestToy(int screenX, int screenY) => Toys.HitTest(screenX, screenY);
+
+    public void BeginToyGrab(DesktopToy toy) => Toys.BeginGrab(toy);
+
+    public void MoveToyGrab(DesktopToy toy, int cursorX, int cursorY) =>
+        Toys.MoveGrab(toy, World, cursorX, cursorY);
+
+    public void ReleaseToyGrab(DesktopToy toy) => Toys.ReleaseGrab(toy);
+
+    public void RemoveToy(DesktopToy toy) => Toys.Remove(toy);
+
     public void BeginGrab(Penguin penguin)
     {
         penguin.IsPerching = false;
         penguin.SlideSecondsRemaining = 0;
         penguin.BeginGrab();
+        penguin.TriggerEmote(PenguinEmote.Alert, 0.9);
         SoundRequested?.Invoke(SoundEffectKind.Eep);
     }
 
@@ -209,6 +224,7 @@ public sealed class PenguinSimulation
                     double vx = Math.Clamp((cursorScreenPos.Value.X - (penguin.X + penguin.Width / 2)) * 0.4, -10.0 * penguin.Scale, 10.0 * penguin.Scale);
                     penguin.ReleaseGrab(vx, -5.5 * penguin.Scale);
                     penguin.TriggerSquash(0.84f, 1.22f);
+                    penguin.TriggerEmote(PenguinEmote.Alert, 1.2);
                     SoundRequested?.Invoke(SoundEffectKind.Eep);
                 }
                 else
@@ -362,6 +378,7 @@ public sealed class PenguinSimulation
                 penguin.Animation is PenguinAnimationId.Walker or PenguinAnimationId.SantaWalker)
             {
                 penguin.BeatCooldown = 0.28;
+                penguin.TriggerEmote(PenguinEmote.Music, 1.0);
                 if (audioPeak > 0.70f && _rng.Next(3) == 0 && !penguin.IsIdle)
                 {
                     penguin.SetAnimation(PenguinAnimationId.Faller, FacingDirection.Left);
@@ -958,41 +975,78 @@ public sealed class PenguinSimulation
 
     private void ApplyToyInteractions(Penguin p, AppSettings settings)
     {
-        if (Toys.Toys.Count == 0 || p.IsTerminalAnimation)
+        if (p.IsTerminalAnimation)
         {
             return;
         }
 
         double s = p.Scale;
         double walkSpeed = 3.2 * s * p.SpeedMultiplier;
+        if (Toys.Toys.Count == 0)
+        {
+            if (p.IsSeekingFish)
+            {
+                p.IsSeekingFish = false;
+                if (p.Animation is PenguinAnimationId.Walker or PenguinAnimationId.SantaWalker && !p.IsSliding)
+                {
+                    p.VelocityX = p.Direction == FacingDirection.Right ? walkSpeed : -walkSpeed;
+                }
+            }
+            return;
+        }
+
         Rectangle pBounds = p.Bounds;
         int cx = p.X + p.Width / 2;
         int cy = p.Y + p.Height / 2;
 
-        // Seek nearby fish treats on flat surfaces.
+        // Seek nearby fish treats on flat surfaces without resetting sub-pixel accumulation.
         if (p.Animation is PenguinAnimationId.Walker or PenguinAnimationId.SantaWalker && !p.IsIdle)
         {
-            DesktopToy? fish = Toys.FindNearestFish(cx, cy, 340 * s);
-            if (fish != null)
+            DesktopToy? nearestFish = Toys.FindNearestFish(cx, cy, 340 * s);
+            if (nearestFish != null)
             {
-                int fishCx = (int)Math.Round(fish.X + fish.Width * 0.5);
-                if (Math.Abs(fishCx - cx) > 6)
+                p.IsSeekingFish = true;
+                int fishCx = (int)Math.Round(nearestFish.X + nearestFish.Width * 0.5);
+                if (Math.Abs(fishCx - cx) > 4)
                 {
                     FacingDirection want = fishCx > cx ? FacingDirection.Right : FacingDirection.Left;
                     if (p.Direction != want)
                     {
                         p.SetAnimation(p.Animation, want);
                     }
+
                     double sprint = p.IsSliding ? Math.Abs(p.VelocityX) : walkSpeed * 1.35;
-                    p.SetVelocity(want == FacingDirection.Right ? sprint : -sprint, 0);
+                    p.VelocityX = want == FacingDirection.Right ? sprint : -sprint;
+                    p.VelocityY = 0;
                 }
             }
+            else if (p.IsSeekingFish)
+            {
+                p.IsSeekingFish = false;
+                if (!p.IsSliding)
+                {
+                    p.VelocityX = p.Direction == FacingDirection.Right ? walkSpeed : -walkSpeed;
+                }
+            }
+        }
+        else if (p.IsSeekingFish)
+        {
+            p.IsSeekingFish = false;
         }
 
         for (int i = 0; i < Toys.Toys.Count; i++)
         {
             DesktopToy toy = Toys.Toys[i];
-            if (!toy.Active || !pBounds.IntersectsWith(toy.Bounds))
+            if (!toy.Active || toy.IsGrabbed)
+            {
+                continue;
+            }
+
+            bool nearFish = toy.Kind == ToyKind.Fish &&
+                Math.Abs((toy.X + toy.Width * 0.5) - cx) <= Math.Max(14, toy.Width * 0.7) &&
+                Math.Abs(toy.Bounds.Bottom - pBounds.Bottom) <= Math.Max(18, (int)(20 * s));
+
+            if (!nearFish && !pBounds.IntersectsWith(toy.Bounds))
             {
                 continue;
             }
@@ -1001,14 +1055,18 @@ public sealed class PenguinSimulation
             {
                 case ToyKind.Fish:
                     toy.Active = false;
+                    FishEatenCount++;
                     p.IdleSecondsRemaining = 0;
+                    p.VelocityX = p.Direction == FacingDirection.Right ? walkSpeed : -walkSpeed;
                     p.TriggerSquash(0.84f, 1.24f);
+                    p.TriggerEmote(PenguinEmote.Heart, 1.8);
                     SoundRequested?.Invoke(SoundEffectKind.Chirp);
                     return;
 
                 case ToyKind.Trampoline:
                     if (p.BounceCooldown <= 0 && !p.StartingUp)
                     {
+                        TrampolineBouncesCount++;
                         p.IsParachuting = false;
                         p.IdleSecondsRemaining = 0;
                         p.SlideSecondsRemaining = 0;
@@ -1019,6 +1077,7 @@ public sealed class PenguinSimulation
                         p.SetVelocity(vx, -11.5 * s);
                         p.TumbleStartY = p.Y;
                         p.TriggerSquash(0.78f, 1.28f);
+                        p.TriggerEmote(PenguinEmote.Alert, 1.0);
                         SoundRequested?.Invoke(SoundEffectKind.Eep);
                         return;
                     }
@@ -1031,6 +1090,7 @@ public sealed class PenguinSimulation
                         DesktopToy? dest = Toys.GetTwinPortal(toy.Kind);
                         if (dest != null)
                         {
+                            PortalJumpsCount++;
                             double destScale = World.GetScaleAt(
                                 (int)Math.Round(dest.X + dest.Width * 0.5),
                                 (int)Math.Round(dest.Y + dest.Height * 0.5),
@@ -1052,6 +1112,7 @@ public sealed class PenguinSimulation
                             toy.Pulse = 1.0;
                             dest.Pulse = 1.0;
                             p.TriggerSquash(0.76f, 1.30f);
+                            p.TriggerEmote(PenguinEmote.Alert, 1.1);
                             SoundRequested?.Invoke(SoundEffectKind.Eep);
                             return;
                         }
@@ -1104,6 +1165,8 @@ public sealed class PenguinSimulation
                     b.GreetingCooldown = 4.5;
                     a.TriggerSquash(0.88f, 1.15f);
                     b.TriggerSquash(0.88f, 1.15f);
+                    a.TriggerEmote(PenguinEmote.Heart, 1.5);
+                    b.TriggerEmote(PenguinEmote.Heart, 1.5);
                     if (_rng.Next(2) == 0)
                     {
                         SoundRequested?.Invoke(SoundEffectKind.Chirp);

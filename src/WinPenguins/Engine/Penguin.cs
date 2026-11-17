@@ -2,6 +2,14 @@ using System.Drawing;
 
 namespace WinPenguins.Engine;
 
+public enum PenguinEmote : byte
+{
+    None = 0,
+    Heart = 1,
+    Music = 2,
+    Alert = 3
+}
+
 public sealed class Penguin
 {
     private double _accumX;
@@ -27,6 +35,7 @@ public sealed class Penguin
     public double BeatCooldown { get; set; }
     public double SlideSecondsRemaining { get; set; }
     public double PerchDwellSeconds { get; set; }
+    public bool IsSeekingFish { get; set; }
     public bool IsSliding => SlideSecondsRemaining > 0;
 
     // 240Hz smooth visual transform state (does not mutate collision Bounds).
@@ -34,9 +43,17 @@ public sealed class Penguin
     public float VisualScaleX { get; set; } = 1.0f;
     public float VisualScaleY { get; set; } = 1.0f;
     public int ShadowDistance { get; set; } = 999;
+    public PenguinEmote Emote { get; private set; }
+    public double EmoteSecondsRemaining { get; private set; }
 
     public double VisualX => X + _accumX;
     public double VisualY => Y + _accumY;
+
+    public void TriggerEmote(PenguinEmote emote, double seconds = 1.4)
+    {
+        Emote = emote;
+        EmoteSecondsRemaining = Math.Max(0.2, seconds);
+    }
 
     public void TriggerSquash(float scaleX, float scaleY)
     {
@@ -81,6 +98,14 @@ public sealed class Penguin
         if (GreetingCooldown > 0) GreetingCooldown = Math.Max(0, GreetingCooldown - dt);
         if (PortalCooldown > 0) PortalCooldown = Math.Max(0, PortalCooldown - dt);
         if (BeatCooldown > 0) BeatCooldown = Math.Max(0, BeatCooldown - dt);
+        if (EmoteSecondsRemaining > 0)
+        {
+            EmoteSecondsRemaining = Math.Max(0, EmoteSecondsRemaining - dt);
+            if (EmoteSecondsRemaining <= 0)
+            {
+                Emote = PenguinEmote.None;
+            }
+        }
     }
 
     public FacingDirection? PreferredDirection { get; set; }
