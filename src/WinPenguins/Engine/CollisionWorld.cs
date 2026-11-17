@@ -240,6 +240,41 @@ public sealed class CollisionWorld
         return IntersectsAnyWindow(testRect);
     }
 
+    public int FindFloorDistanceBelow(Rectangle rect, int maxDistance = 120)
+    {
+        int best = maxDistance + 1;
+
+        for (int i = 0; i < Windows.Count; i++)
+        {
+            Rectangle w = Windows[i];
+            if (w.Right > rect.Left && w.Left < rect.Right && w.Top >= rect.Bottom)
+            {
+                int dist = w.Top - rect.Bottom;
+                if (dist < best)
+                {
+                    best = dist;
+                    if (best == 0) return 0;
+                }
+            }
+        }
+
+        for (int i = 0; i < Monitors.Count; i++)
+        {
+            Rectangle m = Monitors[i];
+            if (m.Right > rect.Left && m.Left < rect.Right && m.Bottom >= rect.Bottom && m.Top <= rect.Bottom)
+            {
+                int dist = m.Bottom - rect.Bottom;
+                if (dist < best)
+                {
+                    best = dist;
+                    if (best == 0) return 0;
+                }
+            }
+        }
+
+        return best;
+    }
+
     public bool IsPastBottomOfAnyCoveringMonitor(Rectangle rect)
     {
         int centerX = rect.Left + rect.Width / 2;

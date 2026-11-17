@@ -33,6 +33,8 @@ public sealed class SpriteSheet
     public uint[] SheetPixels { get; }
     public int FrameWidth { get; }
     public int FrameHeight { get; }
+    public int TextureFrameWidth => Math.Max(1, SheetWidth / Math.Max(1, Spec.FrameCount));
+    public int TextureFrameHeight => Math.Max(1, SheetHeight / Math.Max(1, Spec.DirectionCount));
 
     private SpriteSheet(
         AnimationSpec spec,
@@ -84,6 +86,116 @@ public sealed class SpriteSheet
     {
         using var bmp = new Bitmap(pngPath);
         return BuildFromRgbaBitmap(spec, bmp, reverseRightRow, scale);
+    }
+
+    public static SpriteSheet LoadFromGif(
+        AnimationSpec spec,
+        string gifPath,
+        bool reverseRightRow,
+        double scale)
+    {
+        using var gif = new Bitmap(gifPath);
+        var dim = new FrameDimension(gif.FrameDimensionsList[0]);
+        int frameTotal = Math.Max(1, gif.GetFrameCount(dim));
+        int framesToUse = Math.Max(1, spec.FrameCount);
+        int fw = gif.Width;
+        int fh = gif.Height;
+
+        using var strip = new Bitmap(framesToUse * fw, spec.DirectionCount * fh, PixelFormat.Format32bppArgb);
+        using (Graphics g = Graphics.FromImage(strip))
+        {
+            g.CompositingMode = CompositingMode.SourceCopy;
+            g.InterpolationMode = InterpolationMode.NearestNeighbor;
+            for (int f = 0; f < framesToUse; f++)
+            {
+                gif.SelectActiveFrame(dim, f % frameTotal);
+                g.DrawImage(gif, new Rectangle(f * fw, 0, fw, fh), 0, 0, fw, fh, GraphicsUnit.Pixel);
+                if (spec.DirectionCount > 1)
+                {
+                    using var flipped = new Bitmap(gif);
+                    flipped.RotateFlip(RotateFlipType.RotateNoneFlipX);
+                    g.DrawImage(flipped, new Rectangle(f * fw, fh, fw, fh), 0, 0, fw, fh, GraphicsUnit.Pixel);
+                }
+            }
+        }
+
+        var scaledSpec = spec with { BaseWidth = fw, BaseHeight = fh };
+        return BuildFromRgbaBitmap(scaledSpec, strip, reverseRightRow, scale);
+    }
+
+    /// <summary>
+    /// Creates an EPX / Scale2x smooth vector-pixel 2x upscaled sheet from a classic sheet.
+    /// </summary>
+    public SpriteSheet CreateSmoothHdVariant(double scale)
+    {
+        int fw = Spec.BaseWidth;
+        int fh = Spec.BaseHeight;
+        int upW = fw * 2;
+        int upH = fh * 2;
+
+        uint[] srcAll = SheetPixels;
+        int upSheetW = Spec.FrameCount * upW;
+        int upSheetH = Spec.DirectionCount * upH;
+        var upSheet = new uint[upSheetW * upSheetH];
+
+        for (int d = 0; d < Spec.DirectionCount; d++)
+        {
+            for (int f = 0; f < Spec.FrameCount; f++)
+            {
+                int srcBaseX = f * fw;
+                int srcBaseY = d * fh;
+                int dstBaseX = f * upW;
+                int dstBaseY = d * upH;
+
+                for (int y = 0; y < fh; y++)
+                {
+                    for (int x = 0; x < fw; x++)
+                    {
+                        uint p = srcAll[(srcBaseY + y) * SheetWidth + srcBaseX + x];
+                        uint a = srcAll[(srcBaseY + Math.Max(0, y - 1)) * SheetWidth + srcBaseX + x];
+                        uint b = srcAll[(srcBaseY + y) * SheetWidth + srcBaseX + Math.Min(fw - 1, x + 1)];
+                        uint c = srcAll[(srcBaseY + y) * SheetWidth + srcBaseX + Math.Max(0, x - 1)];
+                        uint dPx = srcAll[(srcBaseY + Math.Min(fh - 1, y + 1)) * SheetWidth + srcBaseX + x];
+
+                        uint e0 = (c == a && c != dPx && a != b) ? a : p;
+                        uint e1 = (a == b && a != c && b != dPx) ? b : p;
+                        uint e2 = (dPx == c && dPx != b && c != a) ? c : p;
+                        uint e3 = (b == dPx && b != a && dPx != c) ? dPx : p;
+
+                        int dy = (dstBaseY + y * 2) * upSheetW + dstBaseX + x * 2;
+                        upSheet[dy] = e0;
+                        upSheet[dy + 1] = e1;
+                        upSheet[dy + upSheetW] = e2;
+                        upSheet[dy + upSheetW + 1] = e3;
+                    }
+                }
+            }
+        }
+
+        int dstW = Math.Max(1, (int)Math.Round(fw * scale));
+        int dstH = Math.Max(1, (int)Math.Round(fh * scale));
+        var frames = new SpriteFrame[Spec.DirectionCount, Spec.FrameCount];
+        for (int d = 0; d < Spec.DirectionCount; d++)
+        {
+            for (int f = 0; f < Spec.FrameCount; f++)
+            {
+                uint[] scaled = new uint[dstW * dstH];
+                int origX = f * upW;
+                int origY = d * upH;
+                for (int y = 0; y < dstH; y++)
+                {
+                    int sy = origY + (y * upH) / dstH;
+                    for (int x = 0; x < dstW; x++)
+                    {
+                        int sx = origX + (x * upW) / dstW;
+                        scaled[y * dstW + x] = upSheet[sy * upSheetW + sx];
+                    }
+                }
+                frames[d, f] = new SpriteFrame(dstW, dstH, scaled);
+            }
+        }
+
+        return new SpriteSheet(Spec, upSheetW, upSheetH, upSheet, dstW, dstH, frames);
     }
 
     public static SpriteSheet BuildFromRgbaBitmap(

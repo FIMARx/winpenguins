@@ -10,8 +10,11 @@ public sealed class PenguinSimulation
     private IReadOnlyDictionary<PenguinAnimationId, AnimationSpec> _specs;
     private double _scale;
     private bool _enableParachutes = true;
+    private Point? _lastCursorPos;
 
     public CollisionWorld World { get; }
+    public ToySystem Toys { get; } = new();
+    public SnowSystem Snow { get; } = new();
 
     public IReadOnlyList<Penguin> Penguins => _penguins;
     public double Scale => _scale;
@@ -104,6 +107,8 @@ public sealed class PenguinSimulation
 
     public void BeginGrab(Penguin penguin)
     {
+        penguin.IsPerching = false;
+        penguin.SlideSecondsRemaining = 0;
         penguin.BeginGrab();
         SoundRequested?.Invoke(SoundEffectKind.Eep);
     }
@@ -123,6 +128,7 @@ public sealed class PenguinSimulation
         {
             // Cute hop + quack on single click.
             penguin.ReleaseGrab(0, -4.5 * penguin.Scale);
+            penguin.TriggerSquash(0.82f, 1.24f);
             SoundRequested?.Invoke(SoundEffectKind.Chirp);
             return;
         }
@@ -140,13 +146,28 @@ public sealed class PenguinSimulation
     }
 
     public void Step(AppSettings settings, Point? cursorScreenPos = null) =>
-        Step(settings, settings.FrameDelayMs, cursorScreenPos);
+        Step(settings, settings.FrameDelayMs, cursorScreenPos, 0f);
 
-    public void Step(AppSettings settings, double deltaMs, Point? cursorScreenPos = null)
+    public void Step(AppSettings settings, double deltaMs, Point? cursorScreenPos = null, float audioPeak = 0f)
     {
         _enableParachutes = settings.EnableParachutes;
         double stepUnits = Math.Clamp(deltaMs / Math.Max(1.0, settings.FrameDelayMs), 0.001, 2.0);
+        double dtSec = Math.Max(0.0, deltaMs / 1000.0);
         bool autoPerMonitorDpi = settings.ScaleMode == SpriteScaleMode.Auto;
+
+        Toys.Step(World, deltaMs);
+        Snow.Step(World, _penguins, deltaMs, settings.EnableSnow);
+
+        double cursorSpeedPxPerSec = 0;
+        if (cursorScreenPos.HasValue && _lastCursorPos.HasValue && dtSec > 0.0005)
+        {
+            double cdx = cursorScreenPos.Value.X - _lastCursorPos.Value.X;
+            double cdy = cursorScreenPos.Value.Y - _lastCursorPos.Value.Y;
+            cursorSpeedPxPerSec = Math.Sqrt(cdx * cdx + cdy * cdy) / dtSec;
+        }
+        _lastCursorPos = cursorScreenPos;
+
+        bool anyPerching = _penguins.Any(p => p.Active && p.IsPerching);
 
         for (int i = 0; i < _penguins.Count; i++)
         {
@@ -155,6 +176,11 @@ public sealed class PenguinSimulation
             {
                 continue;
             }
+
+            penguin.RelaxVisualTransforms(deltaMs);
+            penguin.ShadowDistance = (penguin.StartingUp || penguin.IsTerminalAnimation)
+                ? 999
+                : World.FindFloorDistanceBelow(penguin.Bounds, 120);
 
             if (penguin.IsGrabbed)
             {
@@ -166,6 +192,38 @@ public sealed class PenguinSimulation
                 }
 
                 continue;
+            }
+
+            if (penguin.IsPerching)
+            {
+                if (!settings.CursorPerch || !settings.InteractiveMouse || settings.CursorAvoidance || !cursorScreenPos.HasValue)
+                {
+                    penguin.IsPerching = false;
+                    penguin.SetAnimation(PenguinAnimationId.Faller, FacingDirection.Left);
+                    penguin.SetVelocity(0, 2.0 * penguin.Scale);
+                }
+                else if (cursorSpeedPxPerSec > 780.0)
+                {
+                    // Quick cursor shake flings the perched penguin playfully.
+                    penguin.IsPerching = false;
+                    double vx = Math.Clamp((cursorScreenPos.Value.X - (penguin.X + penguin.Width / 2)) * 0.4, -10.0 * penguin.Scale, 10.0 * penguin.Scale);
+                    penguin.ReleaseGrab(vx, -5.5 * penguin.Scale);
+                    penguin.TriggerSquash(0.84f, 1.22f);
+                    SoundRequested?.Invoke(SoundEffectKind.Eep);
+                }
+                else
+                {
+                    Point target = World.ClampInsideDesktop(new Rectangle(
+                        cursorScreenPos.Value.X - penguin.Width / 2,
+                        cursorScreenPos.Value.Y - penguin.Height,
+                        penguin.Width,
+                        penguin.Height));
+                    penguin.X = target.X;
+                    penguin.Y = target.Y;
+                    penguin.ResetFrameToStanding();
+                    penguin.ShadowDistance = 999;
+                    continue;
+                }
             }
 
             if (autoPerMonitorDpi)
@@ -265,6 +323,75 @@ public sealed class PenguinSimulation
             {
                 ApplyCursorAvoidance(penguin, cursorScreenPos.Value);
             }
+            else if (settings.CursorPerch &&
+                settings.InteractiveMouse &&
+                !anyPerching &&
+                !penguin.StartingUp &&
+                cursorScreenPos.HasValue &&
+                cursorSpeedPxPerSec < 85.0 &&
+                penguin.Animation is PenguinAnimationId.Walker or PenguinAnimationId.SantaWalker)
+            {
+                int cx = penguin.X + penguin.Width / 2;
+                int footY = penguin.Bounds.Bottom;
+                if (Math.Abs(cursorScreenPos.Value.X - cx) <= penguin.Width &&
+                    Math.Abs(cursorScreenPos.Value.Y - footY) <= penguin.Height)
+                {
+                    penguin.PerchDwellSeconds += dtSec;
+                    if (penguin.PerchDwellSeconds >= 1.25)
+                    {
+                        penguin.PerchDwellSeconds = 0;
+                        penguin.IsPerching = true;
+                        penguin.IdleSecondsRemaining = 0;
+                        penguin.SlideSecondsRemaining = 0;
+                        penguin.TriggerSquash(0.84f, 1.20f);
+                        anyPerching = true;
+                        SoundRequested?.Invoke(SoundEffectKind.Chirp);
+                        continue;
+                    }
+                }
+                else
+                {
+                    penguin.PerchDwellSeconds = 0;
+                }
+            }
+
+            if (settings.EnableMusicDancing &&
+                audioPeak > 0.28f &&
+                !penguin.StartingUp &&
+                penguin.BeatCooldown <= 0 &&
+                penguin.Animation is PenguinAnimationId.Walker or PenguinAnimationId.SantaWalker)
+            {
+                penguin.BeatCooldown = 0.28;
+                if (audioPeak > 0.70f && _rng.Next(3) == 0 && !penguin.IsIdle)
+                {
+                    penguin.SetAnimation(PenguinAnimationId.Faller, FacingDirection.Left);
+                    penguin.SetVelocity(penguin.VelocityX * 0.4, -4.2 * penguin.Scale);
+                    penguin.TriggerSquash(0.84f, 1.22f);
+                }
+                else
+                {
+                    penguin.TriggerSquash(1.14f, 0.86f);
+                }
+            }
+
+            if (penguin.SlideSecondsRemaining > 0)
+            {
+                penguin.SlideSecondsRemaining = Math.Max(0, penguin.SlideSecondsRemaining - dtSec);
+                if (penguin.Animation is PenguinAnimationId.Walker or PenguinAnimationId.SantaWalker)
+                {
+                    double targetWalk = 3.2 * penguin.Scale * penguin.SpeedMultiplier;
+                    if (penguin.SlideSecondsRemaining <= 0)
+                    {
+                        penguin.SetVelocity(penguin.Direction == FacingDirection.Right ? targetWalk : -targetWalk, 0);
+                    }
+                }
+                else
+                {
+                    penguin.SlideSecondsRemaining = 0;
+                }
+            }
+
+            ApplyToyInteractions(penguin, settings);
 
             MoveOutcome outcome = penguin.Advance(
                 World,
@@ -290,6 +417,8 @@ public sealed class PenguinSimulation
                 settings,
                 splatThreshold);
         }
+
+        ResolvePenguinInteractions();
 
         for (int i = _penguins.Count - 1; i >= 0; i--)
         {
@@ -344,6 +473,7 @@ public sealed class PenguinSimulation
                         dir);
                     p.SetVelocity(dir == FacingDirection.Right ? walkSpeed : -walkSpeed, 0);
                     p.PreferredDirection = null;
+                    p.TriggerSquash(1.22f, 0.80f);
                 }
                 else
                 {
@@ -404,15 +534,32 @@ public sealed class PenguinSimulation
 
                 if (World.IsBlocked(p.Bounds, CollisionDirection.Down))
                 {
-                    FacingDirection dir = p.PreferredDirection ?? RandomDirection();
+                    double impactVx = p.VelocityX;
+                    bool fastSlide = Math.Abs(impactVx) > 4.2 * s;
+                    FacingDirection dir = fastSlide
+                        ? (impactVx > 0 ? FacingDirection.Right : FacingDirection.Left)
+                        : (p.PreferredDirection ?? RandomDirection());
+
                     EnsureSubType(p, settings.SantaPercent);
                     p.SetAnimation(
                         p.SubType == PenguinSubType.Santa
                             ? PenguinAnimationId.SantaWalker
                             : PenguinAnimationId.Walker,
                         dir);
-                    p.SetVelocity(dir == FacingDirection.Right ? walkSpeed : -walkSpeed, 0);
+
+                    if (fastSlide)
+                    {
+                        double slideSpeed = Math.Clamp(Math.Abs(impactVx) * 0.75, walkSpeed * 1.4, 6.4 * s);
+                        p.SetVelocity(dir == FacingDirection.Right ? slideSpeed : -slideSpeed, 0);
+                        p.SlideSecondsRemaining = 0.65;
+                    }
+                    else
+                    {
+                        p.SetVelocity(dir == FacingDirection.Right ? walkSpeed : -walkSpeed, 0);
+                    }
+
                     p.PreferredDirection = null;
+                    p.TriggerSquash(1.24f, 0.78f);
 
                     if (p.Y - p.TumbleStartY > splatThreshold)
                     {
@@ -527,6 +674,12 @@ public sealed class PenguinSimulation
                         SoundRequested?.Invoke(SoundEffectKind.Chirp);
                     }
                 }
+                else if (settings.EnableIdlePauses && !p.IsSliding && _rng.NextDouble() < 0.0010 * stepUnits)
+                {
+                    p.SlideSecondsRemaining = 0.55 + _rng.NextDouble() * 0.45;
+                    double slideSpeed = 5.4 * s * p.SpeedMultiplier;
+                    p.SetVelocity(p.Direction == FacingDirection.Right ? slideSpeed : -slideSpeed, 0);
+                }
                 break;
 
             case PenguinAnimationId.Climber:
@@ -584,6 +737,7 @@ public sealed class PenguinSimulation
                             dir);
                         p.SetVelocity(dir == FacingDirection.Right ? walkSpeed : -walkSpeed, 0);
                         p.PreferredDirection = null;
+                        p.TriggerSquash(1.16f, 0.86f);
                     }
                     else if (!p.IsParachuting && World.IsBlocked(p.Bounds, CollisionDirection.Up))
                     {
@@ -800,6 +954,194 @@ public sealed class PenguinSimulation
                 }
             }
         }
+    }
+
+    private void ApplyToyInteractions(Penguin p, AppSettings settings)
+    {
+        if (Toys.Toys.Count == 0 || p.IsTerminalAnimation)
+        {
+            return;
+        }
+
+        double s = p.Scale;
+        double walkSpeed = 3.2 * s * p.SpeedMultiplier;
+        Rectangle pBounds = p.Bounds;
+        int cx = p.X + p.Width / 2;
+        int cy = p.Y + p.Height / 2;
+
+        // Seek nearby fish treats on flat surfaces.
+        if (p.Animation is PenguinAnimationId.Walker or PenguinAnimationId.SantaWalker && !p.IsIdle)
+        {
+            DesktopToy? fish = Toys.FindNearestFish(cx, cy, 340 * s);
+            if (fish != null)
+            {
+                int fishCx = (int)Math.Round(fish.X + fish.Width * 0.5);
+                if (Math.Abs(fishCx - cx) > 6)
+                {
+                    FacingDirection want = fishCx > cx ? FacingDirection.Right : FacingDirection.Left;
+                    if (p.Direction != want)
+                    {
+                        p.SetAnimation(p.Animation, want);
+                    }
+                    double sprint = p.IsSliding ? Math.Abs(p.VelocityX) : walkSpeed * 1.35;
+                    p.SetVelocity(want == FacingDirection.Right ? sprint : -sprint, 0);
+                }
+            }
+        }
+
+        for (int i = 0; i < Toys.Toys.Count; i++)
+        {
+            DesktopToy toy = Toys.Toys[i];
+            if (!toy.Active || !pBounds.IntersectsWith(toy.Bounds))
+            {
+                continue;
+            }
+
+            switch (toy.Kind)
+            {
+                case ToyKind.Fish:
+                    toy.Active = false;
+                    p.IdleSecondsRemaining = 0;
+                    p.TriggerSquash(0.84f, 1.24f);
+                    SoundRequested?.Invoke(SoundEffectKind.Chirp);
+                    return;
+
+                case ToyKind.Trampoline:
+                    if (p.BounceCooldown <= 0 && !p.StartingUp)
+                    {
+                        p.IsParachuting = false;
+                        p.IdleSecondsRemaining = 0;
+                        p.SlideSecondsRemaining = 0;
+                        p.BounceCooldown = 0.45;
+                        toy.Pulse = 1.0;
+                        double vx = p.Direction == FacingDirection.Right ? 2.4 * s : -2.4 * s;
+                        p.SetAnimation(PenguinAnimationId.Faller, FacingDirection.Left);
+                        p.SetVelocity(vx, -11.5 * s);
+                        p.TumbleStartY = p.Y;
+                        p.TriggerSquash(0.78f, 1.28f);
+                        SoundRequested?.Invoke(SoundEffectKind.Eep);
+                        return;
+                    }
+                    break;
+
+                case ToyKind.PortalA:
+                case ToyKind.PortalB:
+                    if (p.PortalCooldown <= 0 && !p.StartingUp)
+                    {
+                        DesktopToy? dest = Toys.GetTwinPortal(toy.Kind);
+                        if (dest != null)
+                        {
+                            double destScale = World.GetScaleAt(
+                                (int)Math.Round(dest.X + dest.Width * 0.5),
+                                (int)Math.Round(dest.Y + dest.Height * 0.5),
+                                settings.ScaleMode == SpriteScaleMode.Auto ? _scale : p.Scale);
+                            if (settings.ScaleMode == SpriteScaleMode.Auto)
+                            {
+                                p.SetScale(destScale);
+                            }
+
+                            Rectangle target = new(
+                                (int)Math.Round(dest.X + (dest.Width - p.Width) * 0.5),
+                                (int)Math.Round(dest.Y + (dest.Height - p.Height) * 0.5),
+                                p.Width,
+                                p.Height);
+                            Point safe = World.ClampInsideDesktop(target);
+                            p.X = safe.X;
+                            p.Y = safe.Y;
+                            p.PortalCooldown = 1.5;
+                            toy.Pulse = 1.0;
+                            dest.Pulse = 1.0;
+                            p.TriggerSquash(0.76f, 1.30f);
+                            SoundRequested?.Invoke(SoundEffectKind.Eep);
+                            return;
+                        }
+                    }
+                    break;
+            }
+        }
+    }
+
+    private void ResolvePenguinInteractions()
+    {
+        for (int i = 0; i < _penguins.Count; i++)
+        {
+            Penguin a = _penguins[i];
+            if (!a.Active || a.StartingUp || a.IsGrabbed || a.IsPerching || a.IsTerminalAnimation)
+            {
+                continue;
+            }
+
+            Rectangle ra = a.Bounds;
+            for (int j = i + 1; j < _penguins.Count; j++)
+            {
+                Penguin b = _penguins[j];
+                if (!b.Active || b.StartingUp || b.IsGrabbed || b.IsPerching || b.IsTerminalAnimation)
+                {
+                    continue;
+                }
+
+                Rectangle rb = b.Bounds;
+                if (!ra.IntersectsWith(rb))
+                {
+                    continue;
+                }
+
+                // Check bouncy trampoline landing onto another penguin or parachute umbrella.
+                if (TryBouncePair(a, ra, b, rb) || TryBouncePair(b, rb, a, ra))
+                {
+                    continue;
+                }
+
+                // Opposite-facing walkers briefly greet with a cheerful hop/chirp.
+                if (a.GreetingCooldown <= 0 &&
+                    b.GreetingCooldown <= 0 &&
+                    a.Animation is PenguinAnimationId.Walker or PenguinAnimationId.SantaWalker &&
+                    b.Animation is PenguinAnimationId.Walker or PenguinAnimationId.SantaWalker &&
+                    a.Direction != b.Direction &&
+                    Math.Abs((ra.X + ra.Width / 2) - (rb.X + rb.Width / 2)) < Math.Min(ra.Width, rb.Width) * 0.55)
+                {
+                    a.GreetingCooldown = 4.5;
+                    b.GreetingCooldown = 4.5;
+                    a.TriggerSquash(0.88f, 1.15f);
+                    b.TriggerSquash(0.88f, 1.15f);
+                    if (_rng.Next(2) == 0)
+                    {
+                        SoundRequested?.Invoke(SoundEffectKind.Chirp);
+                    }
+                }
+            }
+        }
+    }
+
+    private bool TryBouncePair(Penguin top, Rectangle rt, Penguin bottom, Rectangle rb)
+    {
+        if (top.BounceCooldown > 0 || bottom.BounceCooldown > 0)
+        {
+            return false;
+        }
+
+        if (top.Animation is not (PenguinAnimationId.Faller or PenguinAnimationId.Tumbler) ||
+            top.VelocityY <= 1.2 * top.Scale)
+        {
+            return false;
+        }
+
+        bool aboveTopHalf = rt.Bottom >= rb.Top && rt.Bottom <= rb.Top + rb.Height * 0.65 && rt.Top < rb.Top;
+        if (!aboveTopHalf)
+        {
+            return false;
+        }
+
+        top.BounceCooldown = 0.45;
+        bottom.BounceCooldown = 0.45;
+        top.TumbleStartY = top.Y;
+        double deflectX = rt.X + rt.Width / 2 < rb.X + rb.Width / 2 ? -1.8 * top.Scale : 1.8 * top.Scale;
+        top.SetAnimation(PenguinAnimationId.Faller, FacingDirection.Left);
+        top.SetVelocity(deflectX, -5.2 * top.Scale);
+        top.TriggerSquash(0.84f, 1.22f);
+        bottom.TriggerSquash(1.24f, 0.78f);
+        SoundRequested?.Invoke(SoundEffectKind.Chirp);
+        return true;
     }
 
     private static int ScaleSize(int baseSize, double scale) =>

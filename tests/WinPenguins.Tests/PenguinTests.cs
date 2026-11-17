@@ -1276,3 +1276,342 @@ public sealed class SettingsTests
         Assert.False(GlobalHotkeyParser.TryParse("", out _, out _, out _));
     }
 }
+
+public sealed class NextLevelFeatureTests
+{
+    [Fact]
+    public void CollisionWorld_FindFloorDistanceBelow_DetectsWindowAndMonitorFloor()
+    {
+        var world = new CollisionWorld(
+            [new Rectangle(0, 0, 1920, 1080)],
+            [new Rectangle(400, 500, 300, 200)]);
+
+        Assert.Equal(28, world.FindFloorDistanceBelow(new Rectangle(450, 440, 32, 32), maxDistance: 120));
+        Assert.Equal(28, world.FindFloorDistanceBelow(new Rectangle(100, 1020, 32, 32), maxDistance: 120));
+        Assert.True(world.FindFloorDistanceBelow(new Rectangle(100, 100, 32, 32), maxDistance: 120) > 120);
+    }
+
+    [Fact]
+    public void PenguinVisualTransforms_TumblerSpinsAndSquashRelaxes()
+    {
+        var p = new Penguin(100, 100, 6.0, 2.0, 1.0);
+        p.SetAnimation(PenguinAnimationId.Tumbler, FacingDirection.Right);
+        p.TriggerSquash(1.26f, 0.76f);
+
+        for (int i = 0; i < 40; i++)
+        {
+            p.RelaxVisualTransforms(16.0);
+        }
+
+        Assert.NotEqual(0f, p.VisualRotationDeg);
+        Assert.InRange(p.VisualScaleX, 0.98f, 1.02f);
+        Assert.InRange(p.VisualScaleY, 0.98f, 1.02f);
+    }
+
+    [Fact]
+    public void DesktopToys_TrampolineBounce_TwinPortalsAcrossMonitors_AndFishSnack()
+    {
+        var world = new CollisionWorld(
+            [new Rectangle(0, 0, 1920, 1080), new Rectangle(1920, 0, 1920, 1080)],
+            [new Rectangle(200, 800, 500, 120)],
+            [1.0, 1.5]);
+        var sim = new PenguinSimulation(world, scale: 1.0, rng: new Random(42));
+        var settings = new AppSettings
+        {
+            PenguinCount = 1,
+            ScaleMode = SpriteScaleMode.Auto,
+            FrameDelayMs = 45,
+            InteractiveMouse = false,
+            EnableIdlePauses = false,
+            EnableParachutes = false
+        };
+
+        // 1. Twin Portals across dual monitors
+        sim.Toys.SpawnTwinPortals(world, new Random(1));
+        DesktopToy portalA = Assert.Single(sim.Toys.Toys, t => t.Kind == ToyKind.PortalA);
+        DesktopToy portalB = Assert.Single(sim.Toys.Toys, t => t.Kind == ToyKind.PortalB);
+        Assert.True(portalA.X < 1920);
+        Assert.True(portalB.X >= 1920);
+
+        sim.EnsureCount(1);
+        Penguin jumper = sim.Penguins[0];
+        jumper.StartingUp = false;
+        jumper.X = (int)portalA.X;
+        jumper.Y = (int)portalA.Y;
+        jumper.SetAnimation(PenguinAnimationId.Walker, FacingDirection.Right);
+        jumper.SetVelocity(3.2, 0);
+
+        sim.Step(settings, 45.0);
+        Assert.True(jumper.X >= 1920);
+        Assert.True(jumper.PortalCooldown > 0);
+        Assert.Equal(1.5, jumper.Scale, precision: 3);
+
+        // 2. Trampoline launch
+        sim.Toys.Clear();
+        DesktopToy tramp = sim.Toys.SpawnToy(ToyKind.Trampoline, 400, 786, 1.0);
+        Penguin bouncer = sim.Penguins[0];
+        bouncer.SetScale(1.0);
+        bouncer.StartingUp = false;
+        bouncer.PortalCooldown = 0;
+        bouncer.BounceCooldown = 0;
+        bouncer.X = 405;
+        bouncer.Y = 760;
+        bouncer.SetAnimation(PenguinAnimationId.Faller, FacingDirection.Left);
+        bouncer.SetVelocity(2.0, 3.0);
+        sim.Step(settings, 45.0);
+        Assert.True(bouncer.VelocityY < 0);
+        Assert.True(bouncer.BounceCooldown > 0);
+        Assert.True(tramp.Pulse > 0);
+
+        // 3. Fish snack eaten on contact
+        sim.Toys.Clear();
+        DesktopToy fish = sim.Toys.SpawnToy(ToyKind.Fish, 420, 786, 1.0);
+        Penguin eater = sim.Penguins[0];
+        eater.SetScale(1.0);
+        eater.StartingUp = false;
+        eater.X = 410;
+        eater.Y = 768;
+        eater.SetAnimation(PenguinAnimationId.Walker, FacingDirection.Right);
+        eater.SetVelocity(3.2, 0);
+        sim.Step(settings, 45.0);
+        Assert.False(fish.Active);
+    }
+
+    [Fact]
+    public void SnowSystem_FallsSettlesAndScattersUnderPenguin()
+    {
+        var world = new CollisionWorld(
+            [new Rectangle(0, 0, 800, 600)],
+            [new Rectangle(100, 250, 600, 100)]);
+        var snow = new SnowSystem(new Random(7));
+        var penguins = new List<Penguin>();
+
+        bool hadSettled = false;
+        float settledX = 0;
+        float settledY = 0;
+        for (int step = 0; step < 300; step++)
+        {
+            snow.Step(world, penguins, 40.0, enabled: true);
+            ReadOnlySpan<SnowParticle> span = snow.Particles;
+            for (int i = 0; i < span.Length; i++)
+            {
+                if (span[i].Active && span[i].Settled && span[i].Y >= 245 && span[i].Y <= 255)
+                {
+                    hadSettled = true;
+                    settledX = span[i].X;
+                    settledY = span[i].Y;
+                    break;
+                }
+            }
+            if (hadSettled) break;
+        }
+
+        Assert.True(hadSettled);
+
+        var walker = new Penguin((int)settledX - 16, (int)settledY - 32, 3.0, 0, 1.0) { StartingUp = false };
+        penguins.Add(walker);
+        snow.Step(world, penguins, 16.0, enabled: true);
+
+        bool stillSettledAtSameSpot = false;
+        foreach (SnowParticle f in snow.Particles)
+        {
+            if (f.Active && f.Settled && Math.Abs(f.X - settledX) < 4 && Math.Abs(f.Y - settledY) < 4)
+            {
+                stillSettledAtSameSpot = true;
+                break;
+            }
+        }
+        Assert.False(stillSettledAtSameSpot);
+
+        snow.Step(world, penguins, 16.0, enabled: false);
+        foreach (SnowParticle f in snow.Particles)
+        {
+            Assert.False(f.Active);
+        }
+    }
+
+    [Fact]
+    public void PenguinToPenguin_BounceAndWalkerGreeting_ApplyCooldowns()
+    {
+        var world = new CollisionWorld([new Rectangle(0, 0, 1920, 1080)]);
+        var sim = new PenguinSimulation(world, scale: 1.0, rng: new Random(123));
+        var settings = new AppSettings
+        {
+            PenguinCount = 2,
+            FrameDelayMs = 45,
+            EnableIdlePauses = false,
+            EnableParachutes = false
+        };
+
+        sim.EnsureCount(2);
+        Penguin bottom = sim.Penguins[0];
+        bottom.StartingUp = false;
+        bottom.X = 500;
+        bottom.Y = 1048;
+        bottom.SetAnimation(PenguinAnimationId.Walker, FacingDirection.Right);
+        bottom.SetVelocity(3.2, 0);
+
+        Penguin top = sim.Penguins[1];
+        top.StartingUp = false;
+        top.X = 502;
+        top.Y = 1024;
+        top.SetAnimation(PenguinAnimationId.Faller, FacingDirection.Left);
+        top.SetVelocity(0, 3.0);
+
+        sim.Step(settings, 45.0);
+        Assert.True(top.VelocityY < 0);
+        Assert.True(top.BounceCooldown > 0);
+        Assert.True(bottom.BounceCooldown > 0);
+
+        Penguin leftWalker = sim.Penguins[0];
+        leftWalker.StartingUp = false;
+        leftWalker.BounceCooldown = 0;
+        leftWalker.GreetingCooldown = 0;
+        leftWalker.X = 600;
+        leftWalker.Y = 1048;
+        leftWalker.SetAnimation(PenguinAnimationId.Walker, FacingDirection.Right);
+        leftWalker.SetVelocity(3.2, 0);
+
+        Penguin rightWalker = sim.Penguins[1];
+        rightWalker.StartingUp = false;
+        rightWalker.BounceCooldown = 0;
+        rightWalker.GreetingCooldown = 0;
+        rightWalker.X = 608;
+        rightWalker.Y = 1048;
+        rightWalker.SetAnimation(PenguinAnimationId.Walker, FacingDirection.Left);
+        rightWalker.SetVelocity(-3.2, 0);
+
+        sim.Step(settings, 45.0);
+        Assert.True(leftWalker.GreetingCooldown > 0);
+        Assert.True(rightWalker.GreetingCooldown > 0);
+    }
+
+    [Fact]
+    public void CursorPerch_DwellsOnStationaryCursorThenFlingsOnFastShake()
+    {
+        var world = new CollisionWorld([new Rectangle(0, 0, 1920, 1080)]);
+        var sim = new PenguinSimulation(world, scale: 1.0, rng: new Random(9));
+        var settings = new AppSettings
+        {
+            PenguinCount = 1,
+            FrameDelayMs = 45,
+            InteractiveMouse = true,
+            CursorPerch = true,
+            CursorAvoidance = false,
+            EnableIdlePauses = false,
+            EnableParachutes = false
+        };
+
+        sim.EnsureCount(1);
+        Penguin p = sim.Penguins[0];
+        p.StartingUp = false;
+        p.IsPerching = true;
+        p.X = 400;
+        p.Y = 400;
+        p.SetAnimation(PenguinAnimationId.Walker, FacingDirection.Right);
+        p.SetVelocity(3.2, 0);
+
+        sim.Step(settings, 45.0, new Point(420, 440));
+        Assert.True(p.IsPerching);
+        Assert.Equal(420 - p.Width / 2, p.X);
+        Assert.Equal(440 - p.Height, p.Y);
+
+        // Move cursor rapidly across > 780 px/s threshold within 20 ms -> flings penguin off!
+        sim.Step(settings, 20.0, new Point(520, 440));
+        Assert.False(p.IsPerching);
+        Assert.True(p.VelocityY < 0);
+    }
+
+    [Fact]
+    public void SpriteCatalog_SmoothHdTheme_PreservesLogicalSizeWithDoubleTextureResolution()
+    {
+        SpriteCatalog classic = SpriteCatalog.LoadDefault(1.0);
+        SpriteCatalog smooth = SpriteCatalog.LoadSmoothHd(1.0);
+
+        Assert.Equal("SmoothHD", smooth.ThemeName);
+        SpriteSheet classicWalker = classic.Sheets[PenguinAnimationId.Walker];
+        SpriteSheet smoothWalker = smooth.Sheets[PenguinAnimationId.Walker];
+
+        Assert.Equal(classicWalker.FrameWidth, smoothWalker.FrameWidth);
+        Assert.Equal(classicWalker.FrameHeight, smoothWalker.FrameHeight);
+        Assert.Equal(classicWalker.TextureFrameWidth * 2, smoothWalker.TextureFrameWidth);
+        Assert.Equal(classicWalker.TextureFrameHeight * 2, smoothWalker.TextureFrameHeight);
+        Assert.Contains("SmoothHD", ThemeDiscovery.ListThemes().Select(t => t.Name));
+    }
+
+    [Fact]
+    public void SpriteCatalog_ImportGifAndAseprite_CreatesLoadableThemes()
+    {
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"WinPenguinsImportTest_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            // 1. GIF import
+            string gifPath = Path.Combine(tempRoot, "mygifpet.gif");
+            using (var gif = new Bitmap(24, 24, PixelFormat.Format32bppArgb))
+            {
+                using Graphics g = Graphics.FromImage(gif);
+                g.Clear(Color.DeepSkyBlue);
+                gif.Save(gifPath, ImageFormat.Gif);
+            }
+
+            (string gifName, string gifFolder) = SpriteCatalog.ImportThemeFromGifOrAseprite(gifPath, tempRoot);
+            Assert.Equal("mygifpet", gifName);
+            Assert.True(File.Exists(Path.Combine(gifFolder, "theme.json")));
+            SpriteCatalog loadedGif = SpriteCatalog.LoadTheme(gifName, 1.0, tempRoot);
+            Assert.Equal(24, loadedGif.Sheets[PenguinAnimationId.Walker].FrameWidth);
+
+            // 2. Aseprite JSON + PNG import
+            string asePng = Path.Combine(tempRoot, "hero_sheet.png");
+            using (var sheet = new Bitmap(64, 32, PixelFormat.Format32bppArgb))
+            {
+                using Graphics g = Graphics.FromImage(sheet);
+                g.Clear(Color.OrangeRed);
+                sheet.Save(asePng, ImageFormat.Png);
+            }
+
+            string aseJson = Path.Combine(tempRoot, "HeroPet.json");
+            File.WriteAllText(aseJson, """
+            {
+              "frames": [
+                { "frame": { "x": 0, "y": 0, "w": 32, "h": 32 } },
+                { "frame": { "x": 32, "y": 0, "w": 32, "h": 32 } }
+              ],
+              "meta": {
+                "image": "hero_sheet.png"
+              }
+            }
+            """);
+
+            (string aseName, string aseFolder) = SpriteCatalog.ImportThemeFromGifOrAseprite(aseJson, tempRoot);
+            Assert.Equal("HeroPet", aseName);
+            Assert.True(File.Exists(Path.Combine(aseFolder, "theme.json")));
+            SpriteCatalog loadedAse = SpriteCatalog.LoadTheme(aseName, 1.0, tempRoot);
+            Assert.Equal(2, loadedAse.Sheets[PenguinAnimationId.Walker].Spec.FrameCount);
+        }
+        finally
+        {
+            try { Directory.Delete(tempRoot, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void AmbientMonitors_AudioAndFocusAndRecording_SafeAndMatchProcesses()
+    {
+        using var audio = new AudioMeterMonitor();
+        Assert.Equal(0f, audio.SamplePeak(enabled: false));
+        float peak = audio.SamplePeak(enabled: true);
+        Assert.InRange(peak, 0f, 1f);
+
+        _ = FocusAndRecordingMonitor.IsPresentationOrFocusBusy();
+
+        var settings = new AppSettings
+        {
+            RecordingProcesses = "obs64.exe, streamlabs ; NonExistentApp"
+        };
+        IReadOnlyList<string> parsed = settings.ParseRecordingProcessNames();
+        Assert.Equal(["obs64", "streamlabs", "NonExistentApp"], parsed);
+        Assert.False(FocusAndRecordingMonitor.IsAnyProcessRunning(
+            new HashSet<string>(["definitely_not_running_process_xyz"], StringComparer.OrdinalIgnoreCase)));
+    }
+}

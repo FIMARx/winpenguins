@@ -52,6 +52,12 @@ public sealed class AppSettings
     public bool PrimaryMonitorOnly { get; set; } = false;
     public bool InteractiveMouse { get; set; } = true;
     public bool CursorAvoidance { get; set; } = false;
+    public bool CursorPerch { get; set; } = true;
+    public bool EnableSnow { get; set; } = false;
+    public bool EnableMusicDancing { get; set; } = true;
+    public bool PauseOnPresentationOrFocus { get; set; } = false;
+    public bool PauseWhenRecording { get; set; } = false;
+    public string RecordingProcesses { get; set; } = "obs64,streamlabs,bandicam,xsplit";
     public bool LaunchAtStartup { get; set; } = false;
 
     public bool EnablePauseHotkey { get; set; } = true;
@@ -81,17 +87,24 @@ public sealed class AppSettings
         ThemeName = string.IsNullOrWhiteSpace(ThemeName) ? "Classic" : ThemeName.Trim();
         PauseHotkey = string.IsNullOrWhiteSpace(PauseHotkey) ? "Ctrl+Alt+P" : PauseHotkey.Trim();
         IgnoredProcesses ??= string.Empty;
+        RecordingProcesses ??= string.Empty;
         CustomSoundPath ??= string.Empty;
     }
 
-    public IReadOnlyList<string> ParseIgnoredProcessNames()
+    public IReadOnlyList<string> ParseIgnoredProcessNames() =>
+        ParseProcessList(IgnoredProcesses);
+
+    public IReadOnlyList<string> ParseRecordingProcessNames() =>
+        ParseProcessList(RecordingProcesses);
+
+    private static IReadOnlyList<string> ParseProcessList(string? raw)
     {
-        if (string.IsNullOrWhiteSpace(IgnoredProcesses))
+        if (string.IsNullOrWhiteSpace(raw))
         {
             return Array.Empty<string>();
         }
 
-        return IgnoredProcesses
+        return raw
             .Split([',', ';', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(p => p.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? p[..^4] : p)
             .Where(p => p.Length > 0)

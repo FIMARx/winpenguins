@@ -42,9 +42,10 @@ public static class ThemeDiscovery
     {
         var result = new List<ThemeDescriptor>
         {
-            new("Classic", null, IsBuiltIn: true)
+            new("Classic", null, IsBuiltIn: true),
+            new("SmoothHD", null, IsBuiltIn: true)
         };
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Classic" };
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Classic", "SmoothHD" };
 
         IEnumerable<string> roots = string.IsNullOrWhiteSpace(extraRootDirectory)
             ? [UserThemesDirectory, AppThemesDirectory]

@@ -13,6 +13,7 @@ public sealed unsafe class GpuSpriteAtlas : IDisposable
     public const int FramePadding = 1;
 
     private readonly Dictionary<PenguinAnimationId, ID2D1Bitmap1> _bitmaps = [];
+    private readonly Dictionary<PenguinAnimationId, (int Width, int Height)> _textureFrameSizes = [];
     private readonly IReadOnlyDictionary<PenguinAnimationId, AnimationSpec> _specs;
 
     public GpuSpriteAtlas(ID2D1DeviceContext d2dContext, SpriteCatalog catalog)
@@ -25,6 +26,7 @@ public sealed unsafe class GpuSpriteAtlas : IDisposable
 
         foreach ((PenguinAnimationId id, SpriteSheet sheet) in catalog.Sheets)
         {
+            _textureFrameSizes[id] = (sheet.TextureFrameWidth, sheet.TextureFrameHeight);
             uint[] padded = BuildPaddedAtlasPixels(sheet, out int paddedW, out int paddedH);
             fixed (uint* ptr = padded)
             {
@@ -43,16 +45,28 @@ public sealed unsafe class GpuSpriteAtlas : IDisposable
     public AnimationSpec GetSpec(PenguinAnimationId id) =>
         _specs.TryGetValue(id, out AnimationSpec? spec) ? spec : AnimationCatalogSpecs.Get(id);
 
+    public (int Width, int Height) GetTextureFrameSize(PenguinAnimationId id)
+    {
+        if (_textureFrameSizes.TryGetValue(id, out (int Width, int Height) size))
+        {
+            return size;
+        }
+
+        AnimationSpec spec = GetSpec(id);
+        return (spec.BaseWidth, spec.BaseHeight);
+    }
+
     public RawRectF GetFrameSourceRect(PenguinAnimationId id, int directionRow, int frameIndex)
     {
         AnimationSpec spec = GetSpec(id);
+        (int fw, int fh) = GetTextureFrameSize(id);
         int dir = spec.DirectionCount > 1 ? Math.Clamp(directionRow, 0, spec.DirectionCount - 1) : 0;
         int frm = Math.Clamp(frameIndex, 0, spec.FrameCount - 1);
-        int cellW = spec.BaseWidth + FramePadding * 2;
-        int cellH = spec.BaseHeight + FramePadding * 2;
+        int cellW = fw + FramePadding * 2;
+        int cellH = fh + FramePadding * 2;
         float srcX = frm * cellW + FramePadding;
         float srcY = dir * cellH + FramePadding;
-        return new RawRectF(srcX, srcY, srcX + spec.BaseWidth, srcY + spec.BaseHeight);
+        return new RawRectF(srcX, srcY, srcX + fw, srcY + fh);
     }
 
     /// <summary>
@@ -63,8 +77,8 @@ public sealed unsafe class GpuSpriteAtlas : IDisposable
     {
         int frames = sheet.Spec.FrameCount;
         int dirs = sheet.Spec.DirectionCount;
-        int fw = sheet.Spec.BaseWidth;
-        int fh = sheet.Spec.BaseHeight;
+        int fw = sheet.TextureFrameWidth;
+        int fh = sheet.TextureFrameHeight;
         int cellW = fw + FramePadding * 2;
         int cellH = fh + FramePadding * 2;
 

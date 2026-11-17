@@ -1,7 +1,11 @@
 using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
 using WinPenguins.Assets;
 using WinPenguins.Config;
+using WinPenguins.Engine;
 using WinPenguins.Platform;
 
 namespace WinPenguins.UI;
@@ -11,6 +15,10 @@ public sealed class OptionsForm : Form
     private readonly AppSettings _original;
     private readonly Action<AppSettings> _applyCallback;
     private readonly SoundPlayerService _soundPlayer;
+    private readonly System.Windows.Forms.Timer _previewTimer;
+    private readonly List<Bitmap> _previewFrames = [];
+    private int _previewFrameIndex;
+    private string _previewThemeName = "Classic";
 
     // Tab 1: Penguins & Sound
     private readonly TrackBar _countSlider;
@@ -40,14 +48,22 @@ public sealed class OptionsForm : Form
     private readonly ComboBox _fpsCombo;
     private readonly CheckBox _interactiveMouseCheck;
     private readonly CheckBox _cursorAvoidCheck;
+    private readonly CheckBox _cursorPerchCheck;
+    private readonly CheckBox _snowCheck;
+    private readonly CheckBox _musicDanceCheck;
     private readonly CheckBox _ignoreMaxCheck;
     private readonly CheckBox _hideFullscreenCheck;
     private readonly CheckBox _pauseBatterySaverCheck;
+    private readonly CheckBox _pauseFocusCheck;
+    private readonly CheckBox _pauseRecordingCheck;
+    private readonly TextBox _recordingProcBox;
     private readonly CheckBox _primaryOnlyCheck;
     private readonly CheckBox _startupCheck;
 
     // Tab 3: Themes & Hotkeys
     private readonly ComboBox _themeCombo;
+    private readonly PictureBox _previewPictureBox;
+    private readonly Label _previewCaptionLabel;
     private readonly CheckBox _enableHotkeyCheck;
     private readonly ComboBox _hotkeyCombo;
     private readonly Label _hotkeyStatusLabel;
@@ -75,7 +91,7 @@ public sealed class OptionsForm : Form
         MinimizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
         Font = new Font("Segoe UI", 9.5f);
-        ClientSize = new Size(800, 610);
+        ClientSize = new Size(820, 640);
 
         var rootLayout = new TableLayoutPanel
         {
@@ -341,9 +357,25 @@ public sealed class OptionsForm : Form
         int dispRow = 3;
         _interactiveMouseCheck = AddOptionCheck(displayTable, ref dispRow, "Interactive mouse (click to hop, drag && throw across monitors)");
         _cursorAvoidCheck = AddOptionCheck(displayTable, ref dispRow, "Penguins avoid mouse cursor (scatter away when approached)");
-        _ignoreMaxCheck = AddOptionCheck(displayTable, ref dispRow, "Ignore maximized windows (walk on taskbar & floating popups)");
+        _cursorPerchCheck = AddOptionCheck(displayTable, ref dispRow, "Penguins perch on resting cursor (shake mouse quickly to fling off)");
+        _snowCheck = AddOptionCheck(displayTable, ref dispRow, "Let it snow (gentle snowflakes settling on windows && taskbar)");
+        _musicDanceCheck = AddOptionCheck(displayTable, ref dispRow, "Dance && bounce to playing Windows audio");
+        _ignoreMaxCheck = AddOptionCheck(displayTable, ref dispRow, "Ignore maximized windows (walk on taskbar && floating popups)");
         _hideFullscreenCheck = AddOptionCheck(displayTable, ref dispRow, "Hide during fullscreen apps / games");
         _pauseBatterySaverCheck = AddOptionCheck(displayTable, ref dispRow, "Pause automatically when Windows Battery Saver is active");
+        _pauseFocusCheck = AddOptionCheck(displayTable, ref dispRow, "Pause during Windows Presentation Mode / Focus Assist (Quiet Hours)");
+        _pauseRecordingCheck = AddOptionCheck(displayTable, ref dispRow, "Pause while screen-recording / streaming apps run:");
+
+        _recordingProcBox = new TextBox
+        {
+            Dock = DockStyle.Fill,
+            Margin = new Padding(24, 0, 3, 6)
+        };
+        _pauseRecordingCheck.CheckedChanged += (_, _) => _recordingProcBox.Enabled = _pauseRecordingCheck.Checked;
+        displayTable.Controls.Add(_recordingProcBox, 0, dispRow);
+        displayTable.SetColumnSpan(_recordingProcBox, 2);
+        dispRow++;
+
         _primaryOnlyCheck = AddOptionCheck(displayTable, ref dispRow, "Primary monitor only");
         _startupCheck = AddOptionCheck(displayTable, ref dispRow, "Launch automatically with Windows");
 
@@ -371,21 +403,28 @@ public sealed class OptionsForm : Form
         // 3a. Themes
         var themeGroup = new GroupBox
         {
-            Text = "Sprite Themes (PNG Theme Packs)",
+            Text = "Sprite Themes (Built-in, PNG, GIF && Aseprite Packs)",
             Dock = DockStyle.Fill,
             Padding = new Padding(10),
             AutoSize = true
         };
+        var themeOuterLayout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            AutoSize = true
+        };
+        themeOuterLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        themeOuterLayout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+
         var themeTable = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 4,
+            ColumnCount = 2,
             AutoSize = true
         };
         themeTable.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         themeTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        themeTable.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        themeTable.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
         themeTable.Controls.Add(new Label
         {
@@ -401,38 +440,93 @@ public sealed class OptionsForm : Form
             Dock = DockStyle.Fill,
             Margin = new Padding(3, 4, 8, 6)
         };
+        _themeCombo.SelectedIndexChanged += (_, _) => RefreshThemePreview();
         themeTable.Controls.Add(_themeCombo, 1, 0);
+
+        var themeButtonsPanel = new FlowLayoutPanel
+        {
+            AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = true,
+            Margin = new Padding(0, 2, 0, 4)
+        };
 
         var openThemesBtn = new Button
         {
             Text = "Open Folder",
             AutoSize = true,
-            MinimumSize = new Size(96, 28),
-            Margin = new Padding(3, 2, 4, 6)
+            MinimumSize = new Size(92, 28),
+            Margin = new Padding(3, 0, 6, 2)
         };
         openThemesBtn.Click += OnOpenThemesFolder;
-        themeTable.Controls.Add(openThemesBtn, 2, 0);
+        themeButtonsPanel.Controls.Add(openThemesBtn);
 
         var createSampleBtn = new Button
         {
             Text = "Create Sample",
             AutoSize = true,
-            MinimumSize = new Size(108, 28),
-            Margin = new Padding(3, 2, 3, 6)
+            MinimumSize = new Size(104, 28),
+            Margin = new Padding(0, 0, 6, 2)
         };
         createSampleBtn.Click += OnCreateSampleTheme;
-        themeTable.Controls.Add(createSampleBtn, 3, 0);
+        themeButtonsPanel.Controls.Add(createSampleBtn);
+
+        var importGifAsepriteBtn = new Button
+        {
+            Text = "Import GIF / Aseprite...",
+            AutoSize = true,
+            MinimumSize = new Size(146, 28),
+            Margin = new Padding(0, 0, 6, 2)
+        };
+        importGifAsepriteBtn.Click += OnImportGifOrAsepriteTheme;
+        themeButtonsPanel.Controls.Add(importGifAsepriteBtn);
+
+        themeTable.Controls.Add(themeButtonsPanel, 0, 1);
+        themeTable.SetColumnSpan(themeButtonsPanel, 2);
 
         var themeHelpLabel = new Label
         {
-            Text = $"Place custom folders containing theme.json + 32-bit transparent PNG sprite sheets in:\r\n{ThemeDiscovery.UserThemesDirectory}",
+            Text = $"Place custom folders (theme.json + PNGs/GIFs) in or import directly to:\r\n{ThemeDiscovery.UserThemesDirectory}",
             AutoSize = true,
             ForeColor = SystemColors.GrayText,
             Margin = new Padding(3, 2, 3, 2)
         };
-        themeTable.Controls.Add(themeHelpLabel, 0, 1);
-        themeTable.SetColumnSpan(themeHelpLabel, 4);
-        themeGroup.Controls.Add(themeTable);
+        themeTable.Controls.Add(themeHelpLabel, 0, 2);
+        themeTable.SetColumnSpan(themeHelpLabel, 2);
+
+        var previewPanel = new TableLayoutPanel
+        {
+            AutoSize = true,
+            ColumnCount = 1,
+            RowCount = 2,
+            Margin = new Padding(10, 0, 2, 0),
+            Anchor = AnchorStyles.Top | AnchorStyles.Right
+        };
+        _previewPictureBox = new PictureBox
+        {
+            Size = new Size(76, 76),
+            BackColor = Color.FromArgb(24, 30, 42),
+            BorderStyle = BorderStyle.FixedSingle,
+            SizeMode = PictureBoxSizeMode.CenterImage,
+            Margin = new Padding(0, 0, 0, 3)
+        };
+        _previewCaptionLabel = new Label
+        {
+            Text = "Preview",
+            AutoSize = true,
+            Anchor = AnchorStyles.None,
+            ForeColor = SystemColors.GrayText,
+            Font = new Font("Segoe UI", 8.25f)
+        };
+        previewPanel.Controls.Add(_previewPictureBox, 0, 0);
+        previewPanel.Controls.Add(_previewCaptionLabel, 0, 1);
+
+        themeOuterLayout.Controls.Add(themeTable, 0, 0);
+        themeOuterLayout.Controls.Add(previewPanel, 1, 0);
+        themeGroup.Controls.Add(themeOuterLayout);
+
+        _previewTimer = new System.Windows.Forms.Timer { Interval = 95 };
+        _previewTimer.Tick += OnPreviewTimerTick;
 
         // 3b. Global Hotkey
         var hotkeyGroup = new GroupBox
@@ -613,6 +707,7 @@ public sealed class OptionsForm : Form
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
+        _previewTimer.Stop();
         if (DialogResult == DialogResult.Cancel && _applied)
         {
             _applied = false;
@@ -620,6 +715,19 @@ public sealed class OptionsForm : Form
         }
 
         base.OnFormClosing(e);
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _previewTimer.Stop();
+            _previewTimer.Dispose();
+            _previewPictureBox.Image = null;
+            ClearPreviewFrames();
+        }
+
+        base.Dispose(disposing);
     }
 
     private void ApplyCurrent()
@@ -652,9 +760,15 @@ public sealed class OptionsForm : Form
             TargetFps = ((ComboItem<int>)_fpsCombo.SelectedItem!).Value,
             InteractiveMouse = _interactiveMouseCheck.Checked,
             CursorAvoidance = _cursorAvoidCheck.Checked,
+            CursorPerch = _cursorPerchCheck.Checked,
+            EnableSnow = _snowCheck.Checked,
+            EnableMusicDancing = _musicDanceCheck.Checked,
             IgnoreMaximizedWindows = _ignoreMaxCheck.Checked,
             HideInFullscreen = _hideFullscreenCheck.Checked,
             PauseOnBatterySaver = _pauseBatterySaverCheck.Checked,
+            PauseOnPresentationOrFocus = _pauseFocusCheck.Checked,
+            PauseWhenRecording = _pauseRecordingCheck.Checked,
+            RecordingProcesses = _recordingProcBox.Text.Trim(),
             PrimaryMonitorOnly = _primaryOnlyCheck.Checked,
             LaunchAtStartup = _startupCheck.Checked,
             SoundEnabled = _soundEnabledCheck.Checked,
@@ -691,9 +805,16 @@ public sealed class OptionsForm : Form
         SelectComboValue(_fpsCombo, copy.TargetFps);
         _interactiveMouseCheck.Checked = copy.InteractiveMouse;
         _cursorAvoidCheck.Checked = copy.CursorAvoidance;
+        _cursorPerchCheck.Checked = copy.CursorPerch;
+        _snowCheck.Checked = copy.EnableSnow;
+        _musicDanceCheck.Checked = copy.EnableMusicDancing;
         _ignoreMaxCheck.Checked = copy.IgnoreMaximizedWindows;
         _hideFullscreenCheck.Checked = copy.HideInFullscreen;
         _pauseBatterySaverCheck.Checked = copy.PauseOnBatterySaver;
+        _pauseFocusCheck.Checked = copy.PauseOnPresentationOrFocus;
+        _pauseRecordingCheck.Checked = copy.PauseWhenRecording;
+        _recordingProcBox.Text = copy.RecordingProcesses;
+        _recordingProcBox.Enabled = copy.PauseWhenRecording;
         _primaryOnlyCheck.Checked = copy.PrimaryMonitorOnly;
         _startupCheck.Checked = copy.LaunchAtStartup;
 
@@ -718,11 +839,12 @@ public sealed class OptionsForm : Form
         IReadOnlyList<ThemeDescriptor> themes = ThemeDiscovery.ListThemes();
         foreach (ThemeDescriptor theme in themes)
         {
-            string label = theme.IsBuiltIn ? $"{theme.Name} (Built-in)" : $"{theme.Name} (Custom PNG)";
+            string label = theme.IsBuiltIn ? $"{theme.Name} (Built-in)" : $"{theme.Name} (Custom Pack)";
             _themeCombo.Items.Add(new ComboItem<string>(theme.Name, label));
         }
 
         SelectComboValue(_themeCombo, selectedThemeName);
+        RefreshThemePreview();
     }
 
     private string GetSelectedThemeName() =>
@@ -795,6 +917,142 @@ public sealed class OptionsForm : Form
             "Sample Theme Created",
             MessageBoxButtons.OK,
             MessageBoxIcon.Information);
+    }
+
+    private void OnImportGifOrAsepriteTheme(object? sender, EventArgs e)
+    {
+        using var dlg = new OpenFileDialog
+        {
+            Title = "Import Animated GIF or Aseprite JSON Sprite Sheet",
+            Filter = "Animated GIF or Aseprite JSON (*.gif;*.json)|*.gif;*.json|All files (*.*)|*.*",
+            CheckFileExists = true
+        };
+        if (dlg.ShowDialog(this) != DialogResult.OK)
+        {
+            return;
+        }
+
+        try
+        {
+            (string themeName, string folderPath) = SpriteCatalog.ImportThemeFromGifOrAseprite(dlg.FileName);
+            PopulateThemeList(themeName);
+            MessageBox.Show(
+                this,
+                $"Imported theme '{themeName}' to:\r\n{folderPath}\r\n\r\nSelect Apply or OK to activate it now!",
+                "Theme Imported",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                this,
+                $"Could not import theme from '{Path.GetFileName(dlg.FileName)}':\r\n{ex.Message}",
+                "Import Failed",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+        }
+    }
+
+    private void RefreshThemePreview()
+    {
+        _previewTimer.Stop();
+        _previewPictureBox.Image = null;
+        ClearPreviewFrames();
+
+        _previewThemeName = GetSelectedThemeName();
+        _previewCaptionLabel.Text = _previewThemeName;
+
+        try
+        {
+            SpriteCatalog catalog = SpriteCatalog.LoadTheme(_previewThemeName, 1.0);
+            if (!catalog.Sheets.TryGetValue(PenguinAnimationId.Walker, out SpriteSheet? walker))
+            {
+                return;
+            }
+
+            bool smoothHd = _previewThemeName.Equals("SmoothHD", StringComparison.OrdinalIgnoreCase);
+            for (int i = 0; i < walker.Spec.FrameCount; i++)
+            {
+                SpriteFrame frame = walker.GetFrame(FacingDirection.Right, i);
+                _previewFrames.Add(RenderPreviewCardFrame(frame, smoothHd));
+            }
+
+            _previewFrameIndex = 0;
+            if (_previewFrames.Count > 0)
+            {
+                _previewPictureBox.Image = _previewFrames[0];
+                if (_previewFrames.Count > 1)
+                {
+                    _previewTimer.Start();
+                }
+            }
+        }
+        catch
+        {
+            // Keep dialog resilient if a custom pack has incomplete preview assets.
+        }
+    }
+
+    private void OnPreviewTimerTick(object? sender, EventArgs e)
+    {
+        if (_previewFrames.Count <= 1 || IsDisposed)
+        {
+            return;
+        }
+
+        _previewFrameIndex = (_previewFrameIndex + 1) % _previewFrames.Count;
+        _previewPictureBox.Image = _previewFrames[_previewFrameIndex];
+    }
+
+    private void ClearPreviewFrames()
+    {
+        for (int i = 0; i < _previewFrames.Count; i++)
+        {
+            _previewFrames[i].Dispose();
+        }
+        _previewFrames.Clear();
+    }
+
+    private static Bitmap RenderPreviewCardFrame(SpriteFrame frame, bool smoothHd)
+    {
+        const int cardSize = 64;
+        var card = new Bitmap(cardSize, cardSize, PixelFormat.Format32bppPArgb);
+        using var spriteBmp = new Bitmap(frame.Width, frame.Height, PixelFormat.Format32bppPArgb);
+        BitmapData data = spriteBmp.LockBits(
+            new Rectangle(0, 0, frame.Width, frame.Height),
+            ImageLockMode.WriteOnly,
+            PixelFormat.Format32bppPArgb);
+        try
+        {
+            int[] signed = new int[frame.Pixels.Length];
+            Buffer.BlockCopy(frame.Pixels, 0, signed, 0, frame.Pixels.Length * 4);
+            for (int row = 0; row < frame.Height; row++)
+            {
+                Marshal.Copy(signed, row * frame.Width, data.Scan0 + (row * data.Stride), frame.Width);
+            }
+        }
+        finally
+        {
+            spriteBmp.UnlockBits(data);
+        }
+
+        using Graphics g = Graphics.FromImage(card);
+        g.Clear(Color.Transparent);
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        g.InterpolationMode = smoothHd ? InterpolationMode.HighQualityBicubic : InterpolationMode.NearestNeighbor;
+        g.PixelOffsetMode = PixelOffsetMode.Half;
+
+        using (var shadowBrush = new SolidBrush(Color.FromArgb(115, 0, 0, 0)))
+        {
+            g.FillEllipse(shadowBrush, 14, 52, 36, 7);
+        }
+
+        int drawSize = 48;
+        int offsetX = (cardSize - drawSize) / 2;
+        int offsetY = 56 - drawSize;
+        g.DrawImage(spriteBmp, new Rectangle(offsetX, offsetY, drawSize, drawSize));
+        return card;
     }
 
     private static TableLayoutPanel CreateTwoColumnGrid()

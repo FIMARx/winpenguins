@@ -18,6 +18,14 @@ The original 2000–2013 C++/MFC codebase (`kasper93/winpenguins`) stopped rende
 - Its `Winmon.dll` global `SetWindowsHookEx` hook failed across 32-bit/64-bit process boundaries.
 - Its window collision did not filter cloaked Windows 10/11 UWP/system windows (`DWMWA_CLOAKED`) or invisible DWM shadow borders (`DWMWA_EXTENDED_FRAME_BOUNDS`).
 
+## Highlights in v2.1
+
+- **240 Hz Direct2D Smoothness & Contact Shadows**: Per-frame `Matrix3x2` tilt, tumbler spin, landing squash-and-stretch springs, and grounded soft contact shadows beneath penguins.
+- **Playful Physics, Toys & Snow**: Penguin-to-penguin head/umbrella bounces and walker greetings, spontaneous belly slides, Cursor Perch (hop onto a resting mouse cursor and fling off on a fast shake), interactive **Desktop Toys** (**Drop Fish Snack**, **Drop Trampoline**, **Spawn Twin Portals**), and toggleable **Let It Snow** accumulation that scatters when penguins walk through.
+- **Smart Ambient Integration**: Windows WASAPI peak-meter **Dance to Music**, **Presentation Mode / Focus Assist** auto-pause, **Screen-Recording / Streaming** app auto-pause (`obs64`, `streamlabs`, `bandicam`, `xsplit`, customizable), and **Session Lock** zero-GPU sleep.
+- **Built-in `SmoothHD` Theme, GIF/Aseprite Importer & Live Preview**: Embedded EPX/Scale2x `SmoothHD` vector-pixel theme, 1-click **Import GIF / Aseprite...** pack creator in Options, and a live animated preview card.
+- **GitHub Actions CI/CD**: Automated restore, Release build, xUnit suite, single-file `WinPenguins.exe` publishing, and tagged Release asset uploads.
+
 ## Highlights in v2.0
 
 - **Hardware-accelerated Direct2D + DirectComposition overlays**: `WS_EX_NOREDIRECTIONBITMAP` composition surfaces, GPU sprite sheet atlases, high-resolution waitable timer pacing (configurable 60 / 120 / 240 FPS), and pixel-crisp scaling.

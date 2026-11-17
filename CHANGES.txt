@@ -1,3 +1,16 @@
+2.1 (Next-Level Personality, Toys, SmoothHD & Ambient Polish)
+  - Added 240 Hz Direct2D Matrix3x2 visual rotation, tumble spin, and landing/hop squash-and-stretch springs
+  - Added soft Direct2D ground-aware contact ellipses beneath airborne and grounded penguins
+  - Added penguin-to-penguin head/umbrella bounces, brief walker greetings, and playful belly slides
+  - Added Cursor Perch (penguins hop onto a stationary cursor and fling off with momentum on a fast mouse shake)
+  - Added interactive Desktop Toys tray submenu (Fish Snacks, Trampolines, and Twin Portals that work across monitors)
+  - Added optional falling Snowflakes (Let It Snow) that cap windows/floors and scatter under passing penguins
+  - Added WASAPI peak-meter audio detection for music-reactive penguin dancing (Dance to Music)
+  - Added Windows Presentation/Focus Assist auto-pause, recording-process auto-pause, and Session Lock zero-GPU sleep
+  - Added built-in SmoothHD theme (EPX/Scale2x 64x64 texture upscaling preserving crisp 32x32 logical footprints)
+  - Added animated GIF and Aseprite JSON theme importer plus live animated theme preview card in Options
+  - Added GitHub Actions CI/Release workflow (.github/workflows/ci-release.yml)
+
 2.0 (Modern Windows 11 Rewrite)
   * Complete modern .NET 10 (net10.0-windows) rewrite replacing legacy VS2012 C++/MFC and Winmon.dll
   - Replaced broken SysListView32 GetDC/BitBlt drawing with hardware-accelerated Direct2D + DirectComposition per-monitor GPU overlays (120/240 Hz high-res waitable timer, configurable 60/120/240 FPS)

@@ -19,10 +19,69 @@ public sealed class Penguin
     public double IdleSecondsRemaining { get; set; }
     public bool IsParachuting { get; set; }
     public bool IsGrabbed { get; private set; }
+    public bool IsPerching { get; set; }
     public double CornerTrapSeconds { get; set; }
+    public double BounceCooldown { get; set; }
+    public double GreetingCooldown { get; set; }
+    public double PortalCooldown { get; set; }
+    public double BeatCooldown { get; set; }
+    public double SlideSecondsRemaining { get; set; }
+    public double PerchDwellSeconds { get; set; }
+    public bool IsSliding => SlideSecondsRemaining > 0;
+
+    // 240Hz smooth visual transform state (does not mutate collision Bounds).
+    public float VisualRotationDeg { get; set; }
+    public float VisualScaleX { get; set; } = 1.0f;
+    public float VisualScaleY { get; set; } = 1.0f;
+    public int ShadowDistance { get; set; } = 999;
 
     public double VisualX => X + _accumX;
     public double VisualY => Y + _accumY;
+
+    public void TriggerSquash(float scaleX, float scaleY)
+    {
+        VisualScaleX = Math.Clamp(scaleX, 0.72f, 1.35f);
+        VisualScaleY = Math.Clamp(scaleY, 0.72f, 1.35f);
+    }
+
+    public void RelaxVisualTransforms(double deltaMs)
+    {
+        double dt = Math.Max(0.0, deltaMs / 1000.0);
+        float blend = (float)(1.0 - Math.Exp(-14.0 * dt));
+        VisualScaleX += (1.0f - VisualScaleX) * blend;
+        VisualScaleY += (1.0f - VisualScaleY) * blend;
+
+        if (Animation == PenguinAnimationId.Tumbler && !IsGrabbed)
+        {
+            float spinRate = Math.Clamp((float)Math.Abs(VelocityX) * 42f, 220f, 720f);
+            float dirSign = VelocityX >= 0 ? 1f : -1f;
+            VisualRotationDeg = (VisualRotationDeg + dirSign * spinRate * (float)dt) % 360f;
+        }
+        else if (IsSliding)
+        {
+            float targetLean = Direction == FacingDirection.Right ? 68f : -68f;
+            VisualRotationDeg += (targetLean - VisualRotationDeg) * Math.Clamp(blend * 1.4f, 0f, 1f);
+        }
+        else if (Animation is PenguinAnimationId.Walker or PenguinAnimationId.SantaWalker && !IsIdle)
+        {
+            float targetTilt = Math.Clamp((float)(VelocityX / Math.Max(1.0, Scale)) * 1.2f, -5.5f, 5.5f);
+            VisualRotationDeg += (targetTilt - VisualRotationDeg) * blend;
+        }
+        else if (Animation == PenguinAnimationId.Floater)
+        {
+            float targetSway = Math.Clamp((float)(VelocityX / Math.Max(1.0, Scale)) * 5.0f, -14f, 14f);
+            VisualRotationDeg += (targetSway - VisualRotationDeg) * blend;
+        }
+        else
+        {
+            VisualRotationDeg += (0f - VisualRotationDeg) * blend;
+        }
+
+        if (BounceCooldown > 0) BounceCooldown = Math.Max(0, BounceCooldown - dt);
+        if (GreetingCooldown > 0) GreetingCooldown = Math.Max(0, GreetingCooldown - dt);
+        if (PortalCooldown > 0) PortalCooldown = Math.Max(0, PortalCooldown - dt);
+        if (BeatCooldown > 0) BeatCooldown = Math.Max(0, BeatCooldown - dt);
+    }
 
     public FacingDirection? PreferredDirection { get; set; }
     public int TumbleStartY { get; set; }

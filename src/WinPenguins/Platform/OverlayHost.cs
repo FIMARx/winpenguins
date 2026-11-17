@@ -3,6 +3,7 @@ using Vortice.Direct3D;
 using Vortice.Direct3D11;
 using Vortice.DirectComposition;
 using Vortice.DXGI;
+using Vortice.Mathematics;
 using WinPenguins.Assets;
 using WinPenguins.Config;
 using WinPenguins.Engine;
@@ -18,6 +19,7 @@ public sealed class OverlayHost : IDisposable
     private readonly ID2D1Device _d2dDevice;
     private readonly ID2D1DeviceContext _d2dContext;
     private readonly IDCompositionDevice _dcompDevice;
+    private readonly ID2D1SolidColorBrush _sharedBrush;
     private GpuSpriteAtlas _gpuAtlas;
 
     private readonly List<DCompOverlayWindow> _windows = [];
@@ -52,6 +54,7 @@ public sealed class OverlayHost : IDisposable
         _d2dContext.SetDpi(96f, 96f);
 
         _dcompDevice = DComp.DCompositionCreateDevice<IDCompositionDevice>(dxgiDevice);
+        _sharedBrush = _d2dContext.CreateSolidColorBrush(new Color4(1f, 1f, 1f, 1f));
         _gpuAtlas = new GpuSpriteAtlas(_d2dContext, spriteCatalog);
 
         Rebuild(settings);
@@ -245,7 +248,12 @@ public sealed class OverlayHost : IDisposable
     private void OnWindowMouseUp(int x, int y) => MouseUp?.Invoke(x, y);
     private void OnWindowCaptureLost() => CaptureLost?.Invoke();
 
-    public void RenderAll(IReadOnlyList<Penguin> penguins, byte opacity, bool forceRedraw = false)
+    public void RenderAll(
+        IReadOnlyList<Penguin> penguins,
+        byte opacity,
+        bool forceRedraw = false,
+        IReadOnlyList<DesktopToy>? toys = null,
+        SnowSystem? snow = null)
     {
         if (!_visible)
         {
@@ -254,7 +262,7 @@ public sealed class OverlayHost : IDisposable
 
         for (int i = 0; i < _windows.Count; i++)
         {
-            _windows[i].RenderFrame(penguins, _gpuAtlas, opacity, forceRedraw);
+            _windows[i].RenderFrame(penguins, _gpuAtlas, opacity, forceRedraw, toys, snow, _sharedBrush);
         }
     }
 
@@ -359,6 +367,7 @@ public sealed class OverlayHost : IDisposable
     {
         DisposeWindows();
         _gpuAtlas.Dispose();
+        _sharedBrush.Dispose();
         _dcompDevice.Dispose();
         _d2dContext.Dispose();
         _d2dDevice.Dispose();

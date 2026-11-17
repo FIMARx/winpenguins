@@ -264,6 +264,9 @@ internal static unsafe class NativeMethods
     [DllImport("kernel32.dll")]
     public static extern bool GetSystemPowerStatus(out SYSTEM_POWER_STATUS lpSystemPowerStatus);
 
+    [DllImport("shell32.dll")]
+    public static extern int SHQueryUserNotificationState(out int pquns);
+
     [DllImport("user32.dll")]
     public static extern IntPtr SetWinEventHook(
         uint eventMin,
