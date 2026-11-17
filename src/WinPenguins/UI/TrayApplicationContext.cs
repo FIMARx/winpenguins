@@ -535,7 +535,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         }
 
         double newScale = ResolveEffectiveScale(_settings);
-        if (Math.Abs(newScale - _activeScale) > 0.001)
+        if (Math.Abs(newScale - _activeScale) > 0.001 || (scaleChange && _settings.ScaleMode != SpriteScaleMode.Auto))
         {
             _activeScale = newScale;
             _simulation.SetScale(_activeScale);

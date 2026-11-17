@@ -228,13 +228,17 @@ public sealed class SpriteCatalog
                 {
                     g.CompositingMode = CompositingMode.SourceCopy;
                     g.InterpolationMode = InterpolationMode.NearestNeighbor;
+                    using var frameBmp = new Bitmap(fw, fh, PixelFormat.Format32bppArgb);
+                    using Graphics fg = Graphics.FromImage(frameBmp);
+                    fg.CompositingMode = CompositingMode.SourceCopy;
                     for (int f = 0; f < frameCount; f++)
                     {
                         gif.SelectActiveFrame(dim, f);
-                        g.DrawImage(gif, new Rectangle(f * fw, 0, fw, fh), 0, 0, fw, fh, GraphicsUnit.Pixel);
-                        using var flipped = new Bitmap(gif);
-                        flipped.RotateFlip(RotateFlipType.RotateNoneFlipX);
-                        g.DrawImage(flipped, new Rectangle(f * fw, fh, fw, fh), 0, 0, fw, fh, GraphicsUnit.Pixel);
+                        fg.Clear(Color.Transparent);
+                        fg.DrawImage(gif, new Rectangle(0, 0, fw, fh), 0, 0, fw, fh, GraphicsUnit.Pixel);
+                        g.DrawImage(frameBmp, new Rectangle(f * fw, 0, fw, fh), 0, 0, fw, fh, GraphicsUnit.Pixel);
+                        frameBmp.RotateFlip(RotateFlipType.RotateNoneFlipX);
+                        g.DrawImage(frameBmp, new Rectangle(f * fw, fh, fw, fh), 0, 0, fw, fh, GraphicsUnit.Pixel);
                     }
                 }
                 strip.Save(Path.Combine(targetDir, sheetFile), ImageFormat.Png);

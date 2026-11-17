@@ -187,6 +187,7 @@ public sealed class AudioMeterMonitor : IDisposable
     [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     private interface IMMDeviceEnumerator
     {
+        [PreserveSig]
         int EnumAudioEndpoints(int dataFlow, uint dwStateMask, out IntPtr ppDevices);
         [PreserveSig]
         int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice? ppEndpoint);

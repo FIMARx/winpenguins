@@ -131,19 +131,19 @@ public sealed class ToySystem
                 toy.Pulse = Math.Max(0, toy.Pulse - dt * 3.5);
             }
 
-            if (toy.IsGrabbed || toy.Pinned)
-            {
-                toy.VelocityY = 0;
-                continue;
-            }
-
             Rectangle cur = toy.Bounds;
-            if (!world.IsInsideDesktop(cur))
+            if (!toy.IsGrabbed && !world.IsInsideDesktop(cur))
             {
                 Point clamped = world.ClampInsideDesktop(cur);
                 toy.X = clamped.X;
                 toy.Y = clamped.Y;
                 cur = toy.Bounds;
+            }
+
+            if (toy.IsGrabbed || toy.Pinned)
+            {
+                toy.VelocityY = 0;
+                continue;
             }
 
             // Gentle drop until resting on a window top or monitor bottom.

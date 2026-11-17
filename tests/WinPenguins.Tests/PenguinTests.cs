@@ -1875,4 +1875,18 @@ public sealed class NextLevelFeatureTests
 
         host.RenderAll(sim.Penguins, 255, forceRedraw: true);
     }
+
+    [Fact]
+    public void DesktopToys_MonitorRemovedReclampsPinnedPortalOntoActiveScreen()
+    {
+        var world = new CollisionWorld([new Rectangle(0, 0, 1920, 1080), new Rectangle(1920, 0, 1920, 1080)]);
+        var toys = new ToySystem();
+        DesktopToy portal = toys.SpawnToy(ToyKind.PortalB, 2500, 400, 1.0);
+        Assert.True(portal.Pinned);
+
+        // Simulate disconnecting the second monitor -> portal must reclamp inside remaining primary monitor.
+        world.Update([new Rectangle(0, 0, 1920, 1080)], Array.Empty<Rectangle>(), [1.0]);
+        toys.Step(world, 16.0);
+        Assert.True(world.IsInsideDesktop(portal.Bounds));
+    }
 }
