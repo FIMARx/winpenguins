@@ -35,8 +35,11 @@ Animated penguins drop onto your monitors, stroll across window titlebars and th
 
 ### Option 1 — Standalone Executable (Recommended)
 
-1. Download **`WinPenguins.exe`** from [GitHub Releases](https://github.com/FIMARx/winpenguins/releases).
+1. Download **`WinPenguins.exe`** (and optional **`SHA256SUMS.txt`**) from [GitHub Releases](https://github.com/FIMARx/winpenguins/releases).
 2. Run it directly — it ships as a self-contained single-file `win-x64` binary with no separate `.NET` runtime required.
+
+> [!NOTE]
+> **Windows SmartScreen Notice:** Because `WinPenguins.exe` is built from source in [GitHub Actions](.github/workflows/ci-release.yml) without a paid Authenticode code-signing certificate, Windows may show *"Windows protected your PC"* on first download. Click **More info → Run anyway** (or right-click → **Properties** → **Unblock**), and optionally verify the download hash against the release's `SHA256SUMS.txt` via `(Get-FileHash .\WinPenguins.exe -Algorithm SHA256).Hash`.
 
 ### Option 2 — Run from Source
 

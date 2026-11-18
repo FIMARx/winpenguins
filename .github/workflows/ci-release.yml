@@ -33,16 +33,38 @@ jobs:
       - name: Publish standalone WinPenguins.exe
         run: dotnet publish src/WinPenguins/WinPenguins.csproj -p:PublishProfile=SingleFile -o publish
 
+      - name: Generate SHA-256 checksum
+        id: hash
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash publish/WinPenguins.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText((Join-Path $PWD 'publish\SHA256SUMS.txt'), "$hash  WinPenguins.exe`n")
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "sha256=$hash"
+
       - name: Upload executable artifact
         uses: actions/upload-artifact@v4
         with:
           name: WinPenguins-win-x64
-          path: publish/WinPenguins.exe
+          path: |
+            publish/WinPenguins.exe
+            publish/SHA256SUMS.txt
           if-no-files-found: error
 
       - name: Create GitHub Release for version tags
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: publish/WinPenguins.exe
+          files: |
+            publish/WinPenguins.exe
+            publish/SHA256SUMS.txt
           generate_release_notes: true
+          body: |
+            ### Standalone Windows x64 Binary
+            - **SHA-256 (`WinPenguins.exe`)**: `${{ steps.hash.outputs.sha256 }}` (also attached as `SHA256SUMS.txt`)
+            - **Build provenance**: Compiled from source in [GitHub Actions run #${{ github.run_number }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+            > [!NOTE]
+            > **Windows SmartScreen Notice:** `WinPenguins.exe` ships unsigned (no paid Authenticode certificate), so Windows Defender SmartScreen may show *"Windows protected your PC"* on first launch. Click **More info → Run anyway** (or right-click → **Properties** → **Unblock**), or verify the SHA-256 checksum above before running:
+            > ```powershell
+            > (Get-FileHash .\WinPenguins.exe -Algorithm SHA256).Hash
+            > ```
