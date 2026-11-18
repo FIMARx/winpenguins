@@ -146,6 +146,16 @@ public sealed class ToySystem
                 continue;
             }
 
+            // Never leave non-pinned toys buried inside a taskbar or moved solid window.
+            if (world.IntersectsAnyWindow(cur) &&
+                world.TrySurfaceFromOverlappingWindows(cur, out Point surfaced))
+            {
+                toy.X = surfaced.X;
+                toy.Y = surfaced.Y;
+                toy.VelocityY = 0;
+                cur = toy.Bounds;
+            }
+
             // Gentle drop until resting on a window top or monitor bottom.
             if (!world.IsBlocked(cur, CollisionDirection.Down))
             {
@@ -170,7 +180,12 @@ public sealed class ToySystem
         }
     }
 
-    public DesktopToy? FindNearestFish(int centerX, int centerY, double maxDistance)
+    public DesktopToy? FindNearestFish(
+        int centerX,
+        int centerY,
+        double maxDistance,
+        int? footY = null,
+        int maxFootDelta = 24)
     {
         DesktopToy? best = null;
         double bestDistSq = maxDistance * maxDistance;
@@ -183,9 +198,14 @@ public sealed class ToySystem
                 continue;
             }
 
+            if (footY.HasValue && Math.Abs(t.Bounds.Bottom - footY.Value) > maxFootDelta)
+            {
+                continue;
+            }
+
             double dx = (t.X + t.Width * 0.5) - centerX;
             double dy = (t.Y + t.Height * 0.5) - centerY;
-            if (Math.Abs(dy) > 90)
+            if (!footY.HasValue && Math.Abs(dy) > 90)
             {
                 continue;
             }

@@ -420,7 +420,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         int spawnX = area.Left + (area.Width / 2) + Random.Shared.Next(-offset, offset + 1);
         int spawnY = area.Top + Math.Max(40, area.Height / 4);
         double scale = _world.GetScaleAt(spawnX, spawnY, _activeScale);
-        _simulation.Toys.SpawnToy(kind, spawnX, spawnY, scale);
+        _ = SpawnSafeToy(_simulation, _world, kind, spawnX, spawnY, scale);
     }
 
     private void ShowOptions()
@@ -865,6 +865,23 @@ public sealed class TrayApplicationContext : ApplicationContext
         return menu;
     }
 
+    internal static DesktopToy SpawnSafeToy(
+        PenguinSimulation simulation,
+        CollisionWorld world,
+        ToyKind kind,
+        int targetX,
+        int targetY,
+        double scale)
+    {
+        (int w, int h) = DesktopToy.GetDimensions(kind, scale);
+        var candidate = new Rectangle(targetX, targetY, w, h);
+        bool allowWindowOverlap = kind is ToyKind.PortalA or ToyKind.PortalB;
+        Point safe = !allowWindowOverlap && world.TrySurfaceFromOverlappingWindows(candidate, out Point surfaced)
+            ? surfaced
+            : world.ClampInsideDesktop(candidate);
+        return simulation.Toys.SpawnToy(kind, safe.X, safe.Y, scale);
+    }
+
     internal static ContextMenuStrip BuildOverlayPenguinMenu(
         Penguin hit,
         int screenX,
@@ -878,12 +895,14 @@ public sealed class TrayApplicationContext : ApplicationContext
         var menu = new ContextMenuStrip();
         menu.Items.Add(new ToolStripMenuItem("Feed Fish Here", null, (_, _) =>
         {
-            simulation.Toys.SpawnToy(ToyKind.Fish, screenX - 12, Math.Max(0, screenY - 24), scale);
+            (int fishW, int fishH) = DesktopToy.GetDimensions(ToyKind.Fish, scale);
+            _ = SpawnSafeToy(simulation, world, ToyKind.Fish, screenX - (fishW / 2), screenY - fishH - 10, scale);
             redraw();
         }));
         menu.Items.Add(new ToolStripMenuItem("Drop Trampoline Here", null, (_, _) =>
         {
-            simulation.Toys.SpawnToy(ToyKind.Trampoline, screenX - 22, Math.Max(0, screenY - 12), scale);
+            (int trampW, int trampH) = DesktopToy.GetDimensions(ToyKind.Trampoline, scale);
+            _ = SpawnSafeToy(simulation, world, ToyKind.Trampoline, screenX - (trampW / 2), screenY - trampH, scale);
             redraw();
         }));
 

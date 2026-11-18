@@ -408,16 +408,7 @@ public sealed class PenguinSimulation
                 Toys.Toys.Count < 8 &&
                 World.IsBlocked(penguin.Bounds, CollisionDirection.Down))
             {
-                penguin.ActionCooldown = 14.0 + _rng.NextDouble() * 8.0;
-                (int fishW, int fishH) = DesktopToy.GetDimensions(ToyKind.Fish, penguin.Scale);
-                int rawFishX = penguin.Direction == FacingDirection.Right
-                    ? penguin.Bounds.Right + 10
-                    : penguin.X - fishW - 10;
-                int rawFishY = penguin.Bounds.Bottom - fishH;
-                Point safeFish = World.ClampInsideDesktop(new Rectangle(rawFishX, rawFishY, fishW, fishH));
-                Toys.SpawnToy(ToyKind.Fish, safeFish.X, safeFish.Y, penguin.Scale);
-                penguin.TriggerEmote(PenguinEmote.Heart, 1.4);
-                SoundRequested?.Invoke(SoundEffectKind.Chirp);
+                TryServeChefFish(penguin);
             }
 
             if (penguin.SlideSecondsRemaining > 0)
@@ -1074,17 +1065,29 @@ public sealed class PenguinSimulation
         int cx = p.X + p.Width / 2;
         int cy = p.Y + p.Height / 2;
 
-        // Seek nearby fish treats on flat surfaces without resetting sub-pixel accumulation.
-        if (p.Animation is PenguinAnimationId.Walker or PenguinAnimationId.SantaWalker && !p.IsIdle)
+        // Seek nearby fish treats on the same reachable floor without pinning against walls.
+        int maxFishFootDelta = Math.Max(18, (int)(20 * s));
+        DesktopToy? nearestFish = p.Animation is PenguinAnimationId.Walker or PenguinAnimationId.SantaWalker && !p.IsIdle
+            ? Toys.FindNearestFish(cx, cy, 340 * s, pBounds.Bottom, maxFishFootDelta)
+            : null;
+
+        bool canApproachFish = false;
+        if (nearestFish != null)
         {
-            DesktopToy? nearestFish = Toys.FindNearestFish(cx, cy, 340 * s);
-            if (nearestFish != null)
+            int fishCx = (int)Math.Round(nearestFish.X + nearestFish.Width * 0.5);
+            FacingDirection want = fishCx > cx ? FacingDirection.Right : FacingDirection.Left;
+            CollisionDirection wantDir = want == FacingDirection.Right
+                ? CollisionDirection.Right
+                : CollisionDirection.Left;
+            bool blockedByWall = Math.Abs(fishCx - cx) > 4 &&
+                (World.IsBlocked(pBounds, wantDir) || World.HasHorizontalBarrierBetween(pBounds, fishCx));
+
+            if (!blockedByWall)
             {
+                canApproachFish = true;
                 p.IsSeekingFish = true;
-                int fishCx = (int)Math.Round(nearestFish.X + nearestFish.Width * 0.5);
                 if (Math.Abs(fishCx - cx) > 4)
                 {
-                    FacingDirection want = fishCx > cx ? FacingDirection.Right : FacingDirection.Left;
                     if (p.Direction != want)
                     {
                         p.SetAnimation(p.Animation, want);
@@ -1096,18 +1099,15 @@ public sealed class PenguinSimulation
                     p.VelocityY = 0;
                 }
             }
-            else if (p.IsSeekingFish)
-            {
-                p.IsSeekingFish = false;
-                if (!p.IsSliding)
-                {
-                    p.VelocityX = p.Direction == FacingDirection.Right ? walkSpeed : -walkSpeed;
-                }
-            }
         }
-        else if (p.IsSeekingFish)
+
+        if (!canApproachFish && p.IsSeekingFish)
         {
             p.IsSeekingFish = false;
+            if (!p.IsSliding && p.Animation is PenguinAnimationId.Walker or PenguinAnimationId.SantaWalker)
+            {
+                p.VelocityX = p.Direction == FacingDirection.Right ? walkSpeed : -walkSpeed;
+            }
         }
 
         for (int i = 0; i < Toys.Toys.Count; i++)
@@ -1201,6 +1201,48 @@ public sealed class PenguinSimulation
                     break;
             }
         }
+    }
+
+    private void TryServeChefFish(Penguin penguin)
+    {
+        (int fishW, int fishH) = DesktopToy.GetDimensions(ToyKind.Fish, penguin.Scale);
+        int rawFishY = penguin.Bounds.Bottom - fishH;
+        int frontX = penguin.Direction == FacingDirection.Right ? penguin.Bounds.Right + 10 : penguin.X - fishW - 10;
+        int behindX = penguin.Direction == FacingDirection.Right ? penguin.X - fishW - 10 : penguin.Bounds.Right + 10;
+        int centerX = penguin.X + ((penguin.Width - fishW) / 2);
+
+        Span<int> candidates = [frontX, behindX, centerX];
+        Point? spawnPoint = null;
+        for (int i = 0; i < candidates.Length; i++)
+        {
+            Point clamped = World.ClampInsideDesktop(new Rectangle(candidates[i], rawFishY, fishW, fishH));
+            if (World.IsPositionValid(new Rectangle(clamped.X, clamped.Y, fishW, fishH), ignoreWindows: false))
+            {
+                spawnPoint = clamped;
+                break;
+            }
+        }
+
+        if (!spawnPoint.HasValue)
+        {
+            Point fallback = World.ClampInsideDesktop(new Rectangle(frontX, rawFishY, fishW, fishH));
+            if (World.TrySurfaceFromOverlappingWindows(new Rectangle(fallback.X, fallback.Y, fishW, fishH), out Point surfaced) &&
+                World.IsPositionValid(new Rectangle(surfaced.X, surfaced.Y, fishW, fishH), ignoreWindows: false))
+            {
+                spawnPoint = surfaced;
+            }
+        }
+
+        if (!spawnPoint.HasValue)
+        {
+            penguin.ActionCooldown = 2.0;
+            return;
+        }
+
+        penguin.ActionCooldown = 14.0 + (_rng.NextDouble() * 8.0);
+        Toys.SpawnToy(ToyKind.Fish, spawnPoint.Value.X, spawnPoint.Value.Y, penguin.Scale);
+        penguin.TriggerEmote(PenguinEmote.Heart, 1.4);
+        SoundRequested?.Invoke(SoundEffectKind.Chirp);
     }
 
     private void ResolvePenguinInteractions()

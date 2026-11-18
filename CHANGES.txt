@@ -1,3 +1,7 @@
+2.1.5 (Taskbar Toy Surfacing & Fish-Seek Unstick Fix)
+  - Prevented Fish Snacks and Trampolines from remaining buried inside the taskbar or solid windows (automatically surfaces overlapping non-pinned toys onto the taskbar/window top edge on step, context-menu "Feed Fish Here" / "Drop Trampoline Here", tray toy drops, and Chef free-fish drops)
+  - Fixed penguins getting stuck piling up at walls or above unreachable fish (matched fish-seeking vertical reach to actual eating reach and stopped walkers from steering into blocking walls or horizontal window barriers while seeking fish)
+
 2.1.4 (Fast Options Navigation & Menu Visual Polish)
   - Eliminated Options dialog and page-switching lag by replacing nested AutoSize TableLayoutPanel cascades with single-pass double-buffered FluentVerticalStack and FluentSettingRowPanel containers, fixing slider badge label auto-resize cascades, wrapping SelectPage transitions in WM_SETREDRAW/SuspendLayout, pausing off-page theme animation ticks, and temporarily capping background overlay frame rate at 60 FPS while Options/menus are open
   - Polished Fluent context menus & submenus: stripped the empty check gutter from non-checkable submenus (such as Desktop Toys and Change Role), aligned divider lines symmetrically across client bounds, centered item text relative to checkmarks and chevrons, and added Windows 11 DWMWA_BORDER_COLOR rounded corner outlines

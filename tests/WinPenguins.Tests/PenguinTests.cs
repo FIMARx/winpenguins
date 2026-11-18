@@ -1685,6 +1685,123 @@ public sealed class NextLevelFeatureTests
     }
 
     [Fact]
+    public void DesktopToys_OverlappingTaskbarSurfacesFishOntoTaskbarTop()
+    {
+        var taskbar = new Rectangle(0, 1032, 1920, 48);
+        var world = new CollisionWorld([new Rectangle(0, 0, 1920, 1080)], [taskbar]);
+        var sim = new PenguinSimulation(world, scale: 1.0, rng: new Random(12));
+        var settings = new AppSettings
+        {
+            PenguinCount = 0,
+            EnableIdlePauses = false,
+            EnableParachutes = false
+        };
+
+        DesktopToy droppedFish = sim.Toys.SpawnToy(ToyKind.Fish, 12, 1080 - 14, 1.0);
+        sim.Step(settings, 16.0);
+
+        Assert.Equal(taskbar.Top, droppedFish.Bounds.Bottom);
+        Assert.False(world.IntersectsAnyWindow(droppedFish.Bounds));
+
+        DesktopToy menuFish = TrayApplicationContext.SpawnSafeToy(sim, world, ToyKind.Fish, 80, 1060, 1.0);
+        Assert.Equal(taskbar.Top, menuFish.Bounds.Bottom);
+        Assert.False(world.IntersectsAnyWindow(menuFish.Bounds));
+
+        DesktopToy portal = TrayApplicationContext.SpawnSafeToy(sim, world, ToyKind.PortalA, 120, 1045, 1.0);
+        Assert.True(portal.Pinned);
+    }
+
+    [Fact]
+    public void DesktopToys_UnreachableFishAndWallBarrierDoNotTrap240HzWalkers()
+    {
+        var shelf = new Rectangle(0, 1000, 400, 12);
+        var worldA = new CollisionWorld([new Rectangle(0, 0, 1920, 1080)], [shelf]);
+        var simA = new PenguinSimulation(worldA, scale: 1.0, rng: new Random(21));
+        var settings = new AppSettings
+        {
+            PenguinCount = 1,
+            TargetFps = 240,
+            EnableIdlePauses = false,
+            EnableParachutes = false
+        };
+
+        simA.EnsureCount(1);
+        Penguin walker = simA.Penguins[0];
+        walker.StartingUp = false;
+        walker.SpeedMultiplier = 1.0;
+        walker.X = 120;
+        walker.Y = shelf.Top - walker.Height;
+        walker.SetAnimation(PenguinAnimationId.Walker, FacingDirection.Left);
+        walker.SetVelocity(-3.2, 0);
+
+        // Fish is 80px below on the monitor bottom (~89px center dy, but unreachable vertically).
+        _ = simA.Toys.SpawnToy(ToyKind.Fish, 80, 1080 - 14, 1.0);
+        for (int i = 0; i < 300; i++)
+        {
+            simA.Step(settings, 4.167);
+            Assert.False(walker.IsSeekingFish, "Walker must not lock onto a vertically unreachable fish.");
+        }
+
+        Assert.True(walker.X < 60, "Walker should keep walking freely past the unreachable fish column.");
+
+        // Same-floor fish behind a solid wall must not pin the walker into the wall.
+        var wall = new Rectangle(500, 900, 80, 132);
+        var taskbar = new Rectangle(0, 1032, 1920, 48);
+        var worldB = new CollisionWorld([new Rectangle(0, 0, 1920, 1080)], [taskbar, wall]);
+        var simB = new PenguinSimulation(worldB, scale: 1.0, rng: new Random(22));
+        simB.EnsureCount(1);
+        Penguin blockedWalker = simB.Penguins[0];
+        blockedWalker.StartingUp = false;
+        blockedWalker.SpeedMultiplier = 1.0;
+        blockedWalker.X = 466;
+        blockedWalker.Y = taskbar.Top - blockedWalker.Height;
+        blockedWalker.SetAnimation(PenguinAnimationId.Walker, FacingDirection.Right);
+        blockedWalker.SetVelocity(3.2, 0);
+
+        _ = simB.Toys.SpawnToy(ToyKind.Fish, 600, taskbar.Top - 14, 1.0);
+        for (int i = 0; i < 300; i++)
+        {
+            simB.Step(settings, 4.167);
+            Assert.False(blockedWalker.IsSeekingFish);
+        }
+
+        Assert.True(
+            blockedWalker.X < 460 || blockedWalker.Y < taskbar.Top - blockedWalker.Height,
+            "Walker blocked by a wall should bounce or climb away instead of pinning against the wall.");
+    }
+
+    [Fact]
+    public void PenguinCrew_ChefDoesNotDropFishInsideSolidWindow()
+    {
+        var taskbar = new Rectangle(0, 1032, 1920, 48);
+        var wall = new Rectangle(540, 800, 200, 232);
+        var world = new CollisionWorld([new Rectangle(0, 0, 1920, 1080)], [taskbar, wall]);
+        var sim = new PenguinSimulation(world, scale: 1.0, rng: new Random(33));
+        var settings = new AppSettings
+        {
+            PenguinCount = 1,
+            SpecialCrewPercent = 0,
+            EnableIdlePauses = false,
+            EnableParachutes = false
+        };
+
+        sim.EnsureCount(1);
+        Penguin chef = sim.Penguins[0];
+        chef.SetSubType(PenguinSubType.Chef, world);
+        chef.StartingUp = false;
+        chef.ActionCooldown = 0;
+        chef.X = wall.Left - chef.Width;
+        chef.Y = taskbar.Top - chef.Height;
+        chef.SetAnimation(PenguinAnimationId.Walker, FacingDirection.Right);
+        chef.SetVelocity(3.2, 0);
+
+        sim.Step(settings, 45.0);
+
+        DesktopToy fish = Assert.Single(sim.Toys.Toys, t => t.Kind == ToyKind.Fish);
+        Assert.True(world.IsPositionValid(fish.Bounds, ignoreWindows: false));
+    }
+
+    [Fact]
     public void PenguinEmotes_TriggerAndRelaxOverTime()
     {
         var p = new Penguin(100, 100, 3.2, 0, 1.0);

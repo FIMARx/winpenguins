@@ -340,6 +340,81 @@ public sealed class CollisionWorld
         return ignoreWindows || !IntersectsAnyWindow(rect);
     }
 
+    /// <summary>
+    /// Lifts <paramref name="rect"/> onto the top surface of any overlapping solid windows while remaining inside the desktop.
+    /// </summary>
+    public bool TrySurfaceFromOverlappingWindows(Rectangle rect, out Point resolved)
+    {
+        Point clamped = ClampInsideDesktop(rect);
+        var candidate = new Rectangle(clamped.X, clamped.Y, rect.Width, rect.Height);
+
+        for (int attempt = 0; attempt < 8; attempt++)
+        {
+            if (!IntersectsAnyWindow(candidate))
+            {
+                resolved = candidate.Location;
+                return IsInsideDesktop(candidate);
+            }
+
+            int minTop = int.MaxValue;
+            for (int i = 0; i < Windows.Count; i++)
+            {
+                Rectangle w = Windows[i];
+                if (candidate.IntersectsWith(w) && w.Top < minTop)
+                {
+                    minTop = w.Top;
+                }
+            }
+
+            if (minTop == int.MaxValue)
+            {
+                break;
+            }
+
+            int nextY = minTop - candidate.Height;
+            if (nextY >= candidate.Y)
+            {
+                break;
+            }
+
+            candidate = new Rectangle(candidate.X, nextY, candidate.Width, candidate.Height);
+            if (!IsInsideDesktop(candidate))
+            {
+                break;
+            }
+        }
+
+        resolved = clamped;
+        return false;
+    }
+
+    /// <summary>
+    /// Returns <see langword="true"/> if a solid window blocks horizontal travel at torso height between <paramref name="bounds"/> and <paramref name="targetCenterX"/>.
+    /// </summary>
+    public bool HasHorizontalBarrierBetween(Rectangle bounds, int targetCenterX)
+    {
+        int centerX = bounds.Left + (bounds.Width / 2);
+        int left = Math.Min(centerX, targetCenterX);
+        int right = Math.Max(centerX, targetCenterX);
+        if (right - left <= 1 || bounds.Height <= 4)
+        {
+            return false;
+        }
+
+        int top = bounds.Top + 2;
+        int bottom = bounds.Bottom - 2;
+        for (int i = 0; i < Windows.Count; i++)
+        {
+            Rectangle w = Windows[i];
+            if (w.Right > left && w.Left < right && w.Bottom > top && w.Top < bottom)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public Point ClampInsideDesktop(Rectangle rect)
     {
         if (IsInsideDesktop(rect))
