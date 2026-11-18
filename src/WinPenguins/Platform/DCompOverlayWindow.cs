@@ -94,7 +94,8 @@ public sealed class DCompOverlayWindow : NativeWindow, IDisposable
             Stereo = false,
             SampleDescription = new SampleDescription(1, 0),
             BufferUsage = Usage.RenderTargetOutput,
-            BufferCount = 2,
+            // Triple-buffer flip composition so 120-240 Hz presents never contend with DWM reading layered menus/dialogs.
+            BufferCount = 3,
             Scaling = Scaling.Stretch,
             SwapEffect = SwapEffect.FlipSequential,
             AlphaMode = Vortice.DXGI.AlphaMode.Premultiplied

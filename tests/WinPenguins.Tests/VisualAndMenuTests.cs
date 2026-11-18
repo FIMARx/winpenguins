@@ -227,8 +227,84 @@ public sealed class VisualAndMenuTests
 
             DesktopToy fish = sim.Toys.Toys.First(t => t.Kind == ToyKind.Fish);
             using ContextMenuStrip toyMenu = TrayApplicationContext.BuildOverlayToyMenu(fish, sim, () => redrawCalls++);
+            Assert.IsType<FluentMenuRenderer>(penguinMenu.Renderer);
+            Assert.IsType<FluentMenuRenderer>(roleRoot.DropDown.Renderer);
+            Assert.IsType<FluentMenuRenderer>(toyMenu.Renderer);
+            Assert.True(penguinMenu.ShowCheckMargin);
+            Assert.False(penguinMenu.ShowImageMargin);
+
+            var darkRenderer = Assert.IsType<FluentMenuRenderer>(toyMenu.Renderer);
+            FluentUi.RefreshContextMenuTheme(toyMenu, darkRenderer, FluentPalette.CreateForTheme(isDark: true));
+            Assert.True(darkRenderer.Palette.IsDark);
+            FluentUi.RefreshContextMenuTheme(toyMenu, darkRenderer, FluentPalette.CreateForTheme(isDark: false));
+            Assert.False(darkRenderer.Palette.IsDark);
+
             toyMenu.Items.OfType<ToolStripMenuItem>().First(i => string.Equals(i.Text, "Remove This Toy", StringComparison.Ordinal)).PerformClick();
             Assert.Empty(sim.Toys.Toys);
+        });
+    }
+
+    [Fact]
+    public void OptionsForm_WrappingFlowCardsStayCompactWithoutVerticalBloat()
+    {
+        StaRunner.Run(() =>
+        {
+            using var sound = new SoundPlayerService();
+            using var form = OptionsForm.CreateWithThemeForTest(
+                isDark: true,
+                SystemIcons.Application,
+                new AppSettings(),
+                sound,
+                _ => { },
+                _ => { });
+
+            form.StartPosition = FormStartPosition.Manual;
+            form.Location = new Point(-32000, -32000);
+            form.Show();
+            Application.DoEvents();
+
+            static IEnumerable<WrappingFlowPanel> FindFlowPanels(Control root)
+            {
+                foreach (Control child in root.Controls)
+                {
+                    if (child is WrappingFlowPanel flow)
+                    {
+                        yield return flow;
+                    }
+
+                    foreach (WrappingFlowPanel nested in FindFlowPanels(child))
+                    {
+                        yield return nested;
+                    }
+                }
+            }
+
+            for (int page = 0; page < form.PageCount; page++)
+            {
+                form.SelectPage(page);
+                Application.DoEvents();
+                foreach (WrappingFlowPanel flow in FindFlowPanels(form))
+                {
+                    if (!flow.Visible)
+                    {
+                        continue;
+                    }
+
+                    // At 920px default width, each single-strip button/chip panel must not reserve vertical dead space.
+                    int maxBottom = flow.Controls.Cast<Control>().Max(c => c.Bottom);
+                    Assert.True(
+                        flow.Height <= maxBottom + 16,
+                        $"WrappingFlowPanel bloated to Height={flow.Height} while children end at Y={maxBottom} on page {page}.");
+                    if (flow.Parent?.Parent is FluentCard card)
+                    {
+                        Assert.True(
+                            card.Height <= maxBottom + 40,
+                            $"FluentCard bloated to Height={card.Height} around WrappingFlowPanel children ending at Y={maxBottom} on page {page}.");
+                    }
+                }
+            }
+
+            form.Close();
         });
     }
 }

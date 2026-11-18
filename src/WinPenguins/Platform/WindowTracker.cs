@@ -28,7 +28,10 @@ public sealed unsafe class WindowTracker : IDisposable
         "Ghost",
         "Windows.UI.Core.CoreWindow",
         "SysShadow",
-        "Shell_LightDismissOverlay"
+        "Shell_LightDismissOverlay",
+        "NotifyIconOverflowWindow",
+        "TopLevelWindowForOverflowXamlIsland",
+        "#32768"
     };
 
     private static readonly HashSet<string> TaskbarClasses = new(StringComparer.OrdinalIgnoreCase)

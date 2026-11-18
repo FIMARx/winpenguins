@@ -133,17 +133,9 @@ internal static class FluentUi
 
         void ApplyDwm()
         {
-            if (!form.IsHandleCreated) return;
-            try
+            if (form.IsHandleCreated)
             {
-                int dark = palette.IsDark ? 1 : 0;
-                _ = NativeMethods.DwmSetWindowAttribute(form.Handle, NativeMethods.DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, sizeof(int));
-                int round = NativeMethods.DWMWCP_ROUND;
-                _ = NativeMethods.DwmSetWindowAttribute(form.Handle, NativeMethods.DWMWA_WINDOW_CORNER_PREFERENCE, ref round, sizeof(int));
-            }
-            catch
-            {
-                // Non-DWM / downlevel OS fallback.
+                ApplyDwmAttributes(form.Handle, palette.IsDark, roundCorners: true);
             }
         }
 
@@ -158,14 +150,151 @@ internal static class FluentUi
     {
         form.BackColor = palette.WindowBg;
         form.ForeColor = palette.TextPrimary;
-        if (!form.IsHandleCreated) return;
+        if (form.IsHandleCreated)
+        {
+            ApplyDwmAttributes(form.Handle, palette.IsDark, roundCorners: false);
+        }
+    }
+
+    public static void KeepAboveOverlayWhileActive(Form form, Func<bool> shouldStayAboveOverlay)
+    {
+        void SyncTopMost()
+        {
+            if (form.IsDisposed || !form.IsHandleCreated)
+            {
+                return;
+            }
+
+            bool ownForeground = false;
+            IntPtr fg = NativeMethods.GetForegroundWindow();
+            if (fg != IntPtr.Zero)
+            {
+                _ = NativeMethods.GetWindowThreadProcessId(fg, out uint pid);
+                ownForeground = pid == (uint)Environment.ProcessId;
+            }
+
+            bool targetTopMost = form.Visible && ownForeground && shouldStayAboveOverlay();
+            if (form.TopMost != targetTopMost)
+            {
+                form.TopMost = targetTopMost;
+            }
+        }
+
+        form.Shown += (_, _) => SyncTopMost();
+        form.Activated += (_, _) => SyncTopMost();
+        form.Deactivate += (_, _) =>
+        {
+            if (!form.IsDisposed && form.IsHandleCreated)
+            {
+                form.BeginInvoke(SyncTopMost);
+            }
+        };
+    }
+
+    public static FluentMenuRenderer ApplyContextMenuTheme(ContextMenuStrip menu, FluentPalette palette)
+    {
+        ArgumentNullException.ThrowIfNull(menu);
+        ArgumentNullException.ThrowIfNull(palette);
+
+        var renderer = new FluentMenuRenderer(palette);
+        ApplyDropDownTheme(menu, palette, renderer);
+        return renderer;
+    }
+
+    public static void RefreshContextMenuTheme(ContextMenuStrip menu, FluentMenuRenderer renderer, FluentPalette palette)
+    {
+        ArgumentNullException.ThrowIfNull(menu);
+        ArgumentNullException.ThrowIfNull(renderer);
+        ArgumentNullException.ThrowIfNull(palette);
+
+        renderer.UpdatePalette(palette);
+        ApplyDropDownColorsRecursive(menu, palette);
+    }
+
+    private static void ApplyDropDownTheme(ToolStripDropDown dropDown, FluentPalette palette, FluentMenuRenderer renderer)
+    {
+        dropDown.Renderer = renderer;
+        // Keep horizontal drop-down padding at 0 so ToolStripDropDown.GetPreferredSize matches item widths cleanly.
+        dropDown.Padding = new Padding(0, 5, 0, 5);
+        dropDown.DropShadowEnabled = true;
+
+        if (dropDown is ToolStripDropDownMenu dropDownMenu)
+        {
+            dropDownMenu.ShowImageMargin = false;
+            dropDownMenu.ShowCheckMargin = true;
+        }
+
+        ApplyDropDownColors(dropDown, palette);
+
+        if (dropDown.Tag is not string marker || !string.Equals(marker, "FluentMenuChrome", StringComparison.Ordinal))
+        {
+            dropDown.Tag = "FluentMenuChrome";
+            dropDown.HandleCreated += (_, _) =>
+            {
+                if (dropDown.IsHandleCreated)
+                {
+                    ApplyDwmAttributes(dropDown.Handle, renderer.Palette.IsDark, roundCorners: true);
+                }
+            };
+        }
+
+        if (dropDown.IsHandleCreated)
+        {
+            ApplyDwmAttributes(dropDown.Handle, renderer.Palette.IsDark, roundCorners: true);
+        }
+
+        foreach (ToolStripItem item in dropDown.Items)
+        {
+            if (item is ToolStripMenuItem menuItem)
+            {
+                menuItem.Padding = new Padding(4, 5, 10, 5);
+                menuItem.Margin = new Padding(0, 1, 0, 1);
+                if (menuItem.HasDropDownItems)
+                {
+                    ApplyDropDownTheme(menuItem.DropDown, palette, renderer);
+                }
+            }
+        }
+    }
+
+    private static void ApplyDropDownColorsRecursive(ToolStripDropDown dropDown, FluentPalette palette)
+    {
+        ApplyDropDownColors(dropDown, palette);
+        if (dropDown.IsHandleCreated)
+        {
+            ApplyDwmAttributes(dropDown.Handle, palette.IsDark, roundCorners: true);
+        }
+
+        foreach (ToolStripItem item in dropDown.Items)
+        {
+            if (item is ToolStripMenuItem menuItem && menuItem.HasDropDownItems)
+            {
+                ApplyDropDownColorsRecursive(menuItem.DropDown, palette);
+            }
+        }
+    }
+
+    private static void ApplyDropDownColors(ToolStripDropDown dropDown, FluentPalette palette)
+    {
+        dropDown.BackColor = palette.CardBg;
+        dropDown.ForeColor = palette.TextPrimary;
+    }
+
+    private static void ApplyDwmAttributes(IntPtr handle, bool isDark, bool roundCorners)
+    {
         try
         {
-            int dark = palette.IsDark ? 1 : 0;
-            _ = NativeMethods.DwmSetWindowAttribute(form.Handle, NativeMethods.DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, sizeof(int));
+            int dark = isDark ? 1 : 0;
+            _ = NativeMethods.DwmSetWindowAttribute(handle, NativeMethods.DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, sizeof(int));
+            if (roundCorners)
+            {
+                int round = NativeMethods.DWMWCP_ROUND;
+                _ = NativeMethods.DwmSetWindowAttribute(handle, NativeMethods.DWMWA_WINDOW_CORNER_PREFERENCE, ref round, sizeof(int));
+            }
         }
         catch
         {
+            // Non-DWM / downlevel OS fallback.
         }
     }
 
@@ -962,5 +1091,178 @@ internal sealed class FluentNavButton : Control
                 g.FillEllipse(fill, x + 8.5f, y + 9.5f, 3f, 2.5f);
                 break;
         }
+    }
+}
+
+internal sealed class WrappingFlowPanel : FlowLayoutPanel
+{
+    private int _lastWidth;
+
+    public WrappingFlowPanel()
+    {
+        AutoSize = true;
+        AutoSizeMode = AutoSizeMode.GrowAndShrink;
+        Dock = DockStyle.Top;
+        FlowDirection = FlowDirection.LeftToRight;
+        WrapContents = true;
+    }
+
+    public override Size GetPreferredSize(Size proposedSize)
+    {
+        // TableLayoutPanel measures AutoSize children with narrow proposed widths during Size.Empty passes,
+        // which would falsely reserve stacked multi-row height. Prefer the actual laid-out width when known.
+        int availableWidth = Width > 32
+            ? Width
+            : (Parent is Control p && p.ClientSize.Width > 32
+                ? Math.Max(32, p.ClientSize.Width - p.Padding.Horizontal - Margin.Horizontal)
+                : (proposedSize.Width > 32 && proposedSize.Width < int.MaxValue / 2 ? proposedSize.Width : 0));
+
+        if (availableWidth <= 32)
+        {
+            return base.GetPreferredSize(proposedSize);
+        }
+
+        Size wrapped = base.GetPreferredSize(new Size(availableWidth, 0));
+        return new Size(Math.Min(wrapped.Width, 120), wrapped.Height);
+    }
+
+    protected override void OnSizeChanged(EventArgs e)
+    {
+        base.OnSizeChanged(e);
+        if (Width > 32 && Width != _lastWidth && Parent is Control parent && !parent.IsDisposed)
+        {
+            _lastWidth = Width;
+            parent.PerformLayout();
+            if (parent.Parent is Control card && !card.IsDisposed)
+            {
+                card.PerformLayout();
+                if (card.Parent is Control page && !page.IsDisposed)
+                {
+                    page.PerformLayout();
+                }
+            }
+        }
+    }
+}
+
+internal sealed class FluentMenuRenderer : ToolStripProfessionalRenderer
+{
+    public FluentPalette Palette { get; private set; }
+
+    public FluentMenuRenderer(FluentPalette palette)
+    {
+        Palette = palette;
+        RoundedEdges = false;
+    }
+
+    public void UpdatePalette(FluentPalette palette)
+    {
+        Palette = palette;
+    }
+
+    protected override void OnRenderToolStripBackground(ToolStripRenderEventArgs e)
+    {
+        using var bg = new SolidBrush(Palette.CardBg);
+        e.Graphics.FillRectangle(bg, e.AffectedBounds);
+    }
+
+    protected override void OnRenderToolStripBorder(ToolStripRenderEventArgs e)
+    {
+        using var pen = new Pen(Palette.CardBorder, 1f);
+        e.Graphics.DrawRectangle(pen, 0, 0, e.ToolStrip.Width - 1, e.ToolStrip.Height - 1);
+    }
+
+    protected override void OnRenderImageMargin(ToolStripRenderEventArgs e)
+    {
+        // Keep a single clean surface across the whole menu item without a legacy gutter stripe.
+    }
+
+    protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e)
+    {
+        if ((!e.Item.Selected && !e.Item.Pressed) || !e.Item.Enabled)
+        {
+            return;
+        }
+
+        Graphics g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        int availWidth = e.ToolStrip is not null ? Math.Min(e.Item.Width, e.ToolStrip.ClientSize.Width) : e.Item.Width;
+        var rect = new RectangleF(4f, 1.5f, Math.Max(4f, availWidth - 8f), Math.Max(4f, e.Item.Height - 3f));
+        using GraphicsPath path = FluentUi.CreateRoundRect(rect, 5f);
+        Color hoverBg = Palette.IsDark ? Palette.ControlHover : Palette.NavHover;
+        Color pressedBg = Palette.IsDark ? Palette.ControlBorder : Palette.NavSelected;
+        using var fill = new SolidBrush(e.Item.Pressed ? pressedBg : hoverBg);
+        g.FillPath(fill, path);
+    }
+
+    protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
+    {
+        Color fg = e.Item.Enabled ? Palette.TextPrimary : Palette.TextSecondary;
+        TextRenderer.DrawText(
+            e.Graphics,
+            e.Text,
+            e.TextFont,
+            e.TextRectangle,
+            fg,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix);
+    }
+
+    protected override void OnRenderItemCheck(ToolStripItemImageRenderEventArgs e)
+    {
+        Graphics g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+
+        const float size = 15f;
+        float x = Math.Max(9f, e.ImageRectangle.X + (e.ImageRectangle.Width - size) / 2f);
+        float y = e.ImageRectangle.Y + (e.ImageRectangle.Height - size) / 2f;
+        var badge = new RectangleF(x, y, size, size);
+
+        using GraphicsPath badgePath = FluentUi.CreateRoundRect(badge, 4f);
+        using (var fill = new SolidBrush(e.Item.Enabled ? Palette.Accent : Palette.ControlBorder))
+        {
+            g.FillPath(fill, badgePath);
+        }
+
+        using var checkPen = new Pen(e.Item.Enabled ? Palette.AccentText : Palette.CardBg, 1.8f)
+        {
+            StartCap = LineCap.Round,
+            EndCap = LineCap.Round,
+            LineJoin = LineJoin.Round
+        };
+        g.DrawLines(checkPen,
+        [
+            new PointF(x + 3.6f, y + 7.7f),
+            new PointF(x + 6.3f, y + 10.4f),
+            new PointF(x + 11.4f, y + 4.8f)
+        ]);
+    }
+
+    protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e)
+    {
+        int y = e.Item.Height / 2;
+        using var pen = new Pen(Palette.Divider, 1f);
+        e.Graphics.DrawLine(pen, 10, y, Math.Max(10, e.Item.Width - 10), y);
+    }
+
+    protected override void OnRenderArrow(ToolStripArrowRenderEventArgs e)
+    {
+        Graphics g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+
+        float cx = e.ArrowRectangle.X + e.ArrowRectangle.Width * 0.5f;
+        float cy = e.ArrowRectangle.Y + e.ArrowRectangle.Height * 0.5f;
+        Color color = e.Item?.Selected == true ? Palette.TextPrimary : Palette.TextSecondary;
+        using var pen = new Pen(color, 1.5f)
+        {
+            StartCap = LineCap.Round,
+            EndCap = LineCap.Round,
+            LineJoin = LineJoin.Round
+        };
+        g.DrawLines(pen,
+        [
+            new PointF(cx - 2.0f, cy - 3.6f),
+            new PointF(cx + 2.0f, cy),
+            new PointF(cx - 2.0f, cy + 3.6f)
+        ]);
     }
 }

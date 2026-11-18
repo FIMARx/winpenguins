@@ -15,6 +15,7 @@ public sealed class TrayApplicationContext : ApplicationContext
     private readonly Icon _appIcon;
     private readonly Font _optionsBoldFont;
     private readonly ContextMenuStrip _trayMenu;
+    private readonly FluentMenuRenderer _trayMenuRenderer;
     private readonly NotifyIcon _trayIcon;
     private readonly FramePacer _framePacer;
     private readonly WindowTracker _windowTracker;
@@ -73,7 +74,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         _world = new CollisionWorld(GetMonitorBounds(_overlayHost.ActiveScreens), monitorScales: _cachedMonitorScales);
         _simulation = new PenguinSimulation(_world, _activeScale, specs: _spriteCatalog.GetSpecsMap());
         _overlayHost.SetPointHitTest((x, y) =>
-            !_paused && !_hiddenForFullscreen && !_exiting && _settings.InteractiveMouse && IsInteractiveTargetAt(x, y));
+            !_paused && !_hiddenForFullscreen && !_exiting && _settings.InteractiveMouse && !IsCursorOverOwnMenuOrDialog() && IsInteractiveTargetAt(x, y));
         _overlayHost.MouseDown += OnOverlayMouseDown;
         _overlayHost.MouseMove += OnOverlayMouseMove;
         _overlayHost.MouseUp += OnOverlayMouseUp;
@@ -140,6 +141,12 @@ public sealed class TrayApplicationContext : ApplicationContext
         _trayMenu.Items.Add(new ToolStripMenuItem("About WinPenguins...", null, (_, _) => ShowAbout()));
         _trayMenu.Items.Add(new ToolStripSeparator());
         _trayMenu.Items.Add(new ToolStripMenuItem("Exit", null, (_, _) => BeginExit()));
+        _trayMenuRenderer = FluentUi.ApplyContextMenuTheme(_trayMenu, FluentPalette.DetectCurrent());
+        _trayMenu.Opening += (_, _) =>
+        {
+            UpdatePauseMenuAndTooltip();
+            FluentUi.RefreshContextMenuTheme(_trayMenu, _trayMenuRenderer, FluentPalette.DetectCurrent());
+        };
 
         _trayIcon = new NotifyIcon
         {
@@ -163,9 +170,12 @@ public sealed class TrayApplicationContext : ApplicationContext
         UpdatePauseMenuAndTooltip();
         _aboveWindowsMenuItem.Checked = _settings.LayerMode == OverlayLayerMode.AboveWindows;
         UpdateAmbientTimerState();
-        UpdateAmbientPauseState();
-        StepAndRender(forceRedraw: true, deltaMs: 8.333);
         _framePacer = new FramePacer(_settings.TargetFps, deltaMs => StepAndRender(forceRedraw: false, deltaMs: deltaMs));
+        UpdateAmbientPauseState();
+        if (!_paused)
+        {
+            StepAndRender(forceRedraw: true, deltaMs: 8.333);
+        }
         _framePacer.SetPaused(_paused);
     }
 
@@ -202,7 +212,7 @@ public sealed class TrayApplicationContext : ApplicationContext
             _ignoredProcesses);
 
         bool shouldHide = _settings.HideInFullscreen && snapshot.FullscreenAppActive && !_exiting;
-        if (shouldHide != _hiddenForFullscreen)
+        if (!IsAnyContextMenuOpen() && shouldHide != _hiddenForFullscreen)
         {
             _hiddenForFullscreen = shouldHide;
             _overlayHost.SetVisible(!shouldHide && !_paused);
@@ -246,8 +256,9 @@ public sealed class TrayApplicationContext : ApplicationContext
         }
 
         _overlayHost.EnsureDesktopZOrderIfNeeded();
+        bool hoverEnabled = _settings.InteractiveMouse && !IsCursorOverOwnMenuOrDialog();
         _overlayHost.UpdateInteractiveHover(
-            _settings.InteractiveMouse,
+            hoverEnabled,
             _grabbedPenguin is not null || _grabbedToy is not null,
             IsInteractiveTargetAt);
         _overlayHost.RenderAll(_simulation.Penguins, _settings.Opacity, forceRedraw, _simulation.Toys.Toys, _simulation.Snow);
@@ -419,6 +430,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         }
 
         using var dlg = new OptionsForm(_appIcon, _settings, _soundService, ApplySettings, ExecuteQuickAction);
+        FluentUi.KeepAboveOverlayWhileActive(dlg, () => _settings.LayerMode == OverlayLayerMode.AboveWindows);
         _activeDialog = dlg;
         try
         {
@@ -465,6 +477,7 @@ public sealed class TrayApplicationContext : ApplicationContext
 
         string stats = $"Active penguins: {_simulation.Penguins.Count} · Fish eaten: {_simulation.FishEatenCount} · Trampoline bounces: {_simulation.TrampolineBouncesCount} · Portal jumps: {_simulation.PortalJumpsCount}";
         using var dlg = new AboutForm(_appIcon, stats);
+        FluentUi.KeepAboveOverlayWhileActive(dlg, () => _settings.LayerMode == OverlayLayerMode.AboveWindows);
         _activeDialog = dlg;
         try
         {
@@ -628,6 +641,26 @@ public sealed class TrayApplicationContext : ApplicationContext
     {
         _windowTracker.MarkDirty(urgent: true);
         RebuildMonitors();
+    }
+
+    private bool IsAnyContextMenuOpen() =>
+        _trayMenu.Visible || (_overlayContextMenu is { Visible: true });
+
+    private bool IsCursorOverOwnMenuOrDialog()
+    {
+        if (IsAnyContextMenuOpen())
+        {
+            return true;
+        }
+
+        if (_activeDialog is { Visible: true, IsDisposed: false } &&
+            NativeMethods.GetForegroundWindow() == _activeDialog.Handle &&
+            NativeMethods.GetCursorPos(out NativeMethods.POINT pt))
+        {
+            return _activeDialog.Bounds.Contains(pt.X, pt.Y);
+        }
+
+        return false;
     }
 
     private bool IsInteractiveTargetAt(int screenX, int screenY) =>
@@ -801,6 +834,7 @@ public sealed class TrayApplicationContext : ApplicationContext
             simulation.Toys.Clear();
             redraw();
         }));
+        _ = FluentUi.ApplyContextMenuTheme(menu, FluentPalette.DetectCurrent());
         return menu;
     }
 
@@ -858,6 +892,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(new ToolStripMenuItem("Scatter All", null, (_, _) => simulation.ScatterAll()));
         menu.Items.Add(new ToolStripMenuItem("Options...", null, (_, _) => openOptions()));
+        _ = FluentUi.ApplyContextMenuTheme(menu, FluentPalette.DetectCurrent());
         return menu;
     }
 

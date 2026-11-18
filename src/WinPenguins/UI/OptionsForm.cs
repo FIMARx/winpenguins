@@ -320,13 +320,8 @@ public sealed class OptionsForm : Form
 
         AddSectionHeader(page1, ref p1Row, "Mood Presets");
         TableLayoutPanel presetRows = AddCard(page1, ref p1Row);
-        var presetStrip = new FlowLayoutPanel
+        var presetStrip = new WrappingFlowPanel
         {
-            AutoSize = true,
-            AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            Dock = DockStyle.Top,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true,
             BackColor = _palette.CardBg,
             Margin = new Padding(0, 2, 0, 2)
         };
@@ -351,13 +346,8 @@ public sealed class OptionsForm : Form
         (_crewSlider, _crewValueLabel) = AddSliderRow(colonyRows, ref cRow, "Special crew mix", "Share of non-Santa penguins spawning with unique roles", 0, 100, v => $"{v}%");
         AddDivider(colonyRows, ref cRow);
 
-        var chipRow = new FlowLayoutPanel
+        var chipRow = new WrappingFlowPanel
         {
-            AutoSize = true,
-            AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            Dock = DockStyle.Top,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true,
             BackColor = _palette.CardBg,
             Margin = new Padding(0, 4, 0, 2)
         };
@@ -398,13 +388,8 @@ public sealed class OptionsForm : Form
 
         AddSectionHeader(page2, ref p2Row, "Quick Toybox");
         TableLayoutPanel toyBoxRows = AddCard(page2, ref p2Row);
-        var toyStrip = new FlowLayoutPanel
+        var toyStrip = new WrappingFlowPanel
         {
-            AutoSize = true,
-            AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            Dock = DockStyle.Top,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true,
             BackColor = _palette.CardBg,
             Margin = new Padding(0, 2, 0, 2)
         };
@@ -613,12 +598,8 @@ public sealed class OptionsForm : Form
         };
         themeLeft.Controls.Add(_themeCombo, 0, 1);
 
-        var themeActions = new FlowLayoutPanel
+        var themeActions = new WrappingFlowPanel
         {
-            AutoSize = true,
-            Dock = DockStyle.Top,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true,
             Margin = new Padding(0, 0, 0, 8)
         };
         var importBtn = new FluentButton(_palette, primary: true)
