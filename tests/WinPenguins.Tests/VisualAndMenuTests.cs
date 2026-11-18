@@ -232,6 +232,7 @@ public sealed class VisualAndMenuTests
             Assert.IsType<FluentMenuRenderer>(toyMenu.Renderer);
             Assert.True(penguinMenu.ShowCheckMargin);
             Assert.False(penguinMenu.ShowImageMargin);
+            Assert.False(((ToolStripDropDownMenu)roleRoot.DropDown).ShowCheckMargin);
 
             var darkRenderer = Assert.IsType<FluentMenuRenderer>(toyMenu.Renderer);
             FluentUi.RefreshContextMenuTheme(toyMenu, darkRenderer, FluentPalette.CreateForTheme(isDark: true));

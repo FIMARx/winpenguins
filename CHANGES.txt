@@ -1,3 +1,7 @@
+2.1.4 (Fast Options Navigation & Menu Visual Polish)
+  - Eliminated Options dialog and page-switching lag by replacing nested AutoSize TableLayoutPanel cascades with single-pass double-buffered FluentVerticalStack and FluentSettingRowPanel containers, fixing slider badge label auto-resize cascades, wrapping SelectPage transitions in WM_SETREDRAW/SuspendLayout, pausing off-page theme animation ticks, and temporarily capping background overlay frame rate at 60 FPS while Options/menus are open
+  - Polished Fluent context menus & submenus: stripped the empty check gutter from non-checkable submenus (such as Desktop Toys and Change Role), aligned divider lines symmetrically across client bounds, centered item text relative to checkmarks and chevrons, and added Windows 11 DWMWA_BORDER_COLOR rounded corner outlines
+
 2.1.3 (Ambient Focus & Hover Flicker Hotfix)
   - Fixed penguins vanishing or flickering across desktops and after closing menus when Presentation/Focus Pause is enabled (removed spurious Windows 11 QUNS_BUSY notification-state pausing while keeping D3D Fullscreen, Presentation Mode, and Quiet Time detection)
   - Added hover release cooldown in OverlayHost to eliminate 240 Hz WS_EX_TRANSPARENT extended-style thrashing on grazing cursors and perched penguins

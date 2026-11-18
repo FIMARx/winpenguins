@@ -146,7 +146,9 @@ public sealed class TrayApplicationContext : ApplicationContext
         {
             UpdatePauseMenuAndTooltip();
             FluentUi.RefreshContextMenuTheme(_trayMenu, _trayMenuRenderer, FluentPalette.DetectCurrent());
+            UpdateFramePacerRate(menuOpening: true);
         };
+        _trayMenu.Closed += (_, _) => UpdateFramePacerRate();
 
         _trayIcon = new NotifyIcon
         {
@@ -432,6 +434,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         using var dlg = new OptionsForm(_appIcon, _settings, _soundService, ApplySettings, ExecuteQuickAction);
         FluentUi.KeepAboveOverlayWhileActive(dlg, () => _settings.LayerMode == OverlayLayerMode.AboveWindows);
         _activeDialog = dlg;
+        UpdateFramePacerRate();
         try
         {
             if (dlg.ShowDialog() == DialogResult.OK)
@@ -442,6 +445,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         finally
         {
             _activeDialog = null;
+            UpdateFramePacerRate();
         }
     }
 
@@ -479,6 +483,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         using var dlg = new AboutForm(_appIcon, stats);
         FluentUi.KeepAboveOverlayWhileActive(dlg, () => _settings.LayerMode == OverlayLayerMode.AboveWindows);
         _activeDialog = dlg;
+        UpdateFramePacerRate();
         try
         {
             dlg.ShowDialog();
@@ -486,7 +491,14 @@ public sealed class TrayApplicationContext : ApplicationContext
         finally
         {
             _activeDialog = null;
+            UpdateFramePacerRate();
         }
+    }
+
+    private void UpdateFramePacerRate(bool menuOpening = false)
+    {
+        bool throttleForUi = menuOpening || _activeDialog != null || IsAnyContextMenuOpen();
+        _framePacer?.SetTargetFps(throttleForUi ? Math.Min(_settings.TargetFps, 60) : _settings.TargetFps);
     }
 
     private void ScheduleScreenshot()
@@ -524,7 +536,7 @@ public sealed class TrayApplicationContext : ApplicationContext
             !string.Equals(updated.PauseHotkey, _settings.PauseHotkey, StringComparison.OrdinalIgnoreCase);
 
         _settings = updated;
-        _framePacer.SetTargetFps(_settings.TargetFps);
+        UpdateFramePacerRate();
 
         if (recordingProcChange)
         {
@@ -796,12 +808,10 @@ public sealed class TrayApplicationContext : ApplicationContext
         DesktopToy? toyHit = _simulation.HitTestToy(screenX, screenY);
         if (toyHit is not null)
         {
-            _overlayContextMenu?.Dispose();
-            _overlayContextMenu = BuildOverlayToyMenu(
-                toyHit,
-                _simulation,
-                () => StepAndRender(forceRedraw: true, deltaMs: 0));
-            _overlayContextMenu.Show(screenX, screenY);
+            ShowOverlayContextMenu(
+                BuildOverlayToyMenu(toyHit, _simulation, () => StepAndRender(forceRedraw: true, deltaMs: 0)),
+                screenX,
+                screenY);
             return;
         }
 
@@ -812,16 +822,26 @@ public sealed class TrayApplicationContext : ApplicationContext
         }
 
         double scale = _world.GetScaleAt(screenX, screenY, _activeScale);
-        _overlayContextMenu?.Dispose();
-        _overlayContextMenu = BuildOverlayPenguinMenu(
-            hit,
+        ShowOverlayContextMenu(
+            BuildOverlayPenguinMenu(
+                hit,
+                screenX,
+                screenY,
+                scale,
+                _simulation,
+                _world,
+                () => StepAndRender(forceRedraw: true, deltaMs: 0),
+                ShowOptions),
             screenX,
-            screenY,
-            scale,
-            _simulation,
-            _world,
-            () => StepAndRender(forceRedraw: true, deltaMs: 0),
-            ShowOptions);
+            screenY);
+    }
+
+    private void ShowOverlayContextMenu(ContextMenuStrip menu, int screenX, int screenY)
+    {
+        _overlayContextMenu?.Dispose();
+        _overlayContextMenu = menu;
+        _overlayContextMenu.Closed += (_, _) => UpdateFramePacerRate();
+        UpdateFramePacerRate(menuOpening: true);
         _overlayContextMenu.Show(screenX, screenY);
     }
 

@@ -12,7 +12,7 @@
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <AssemblyName>WinPenguins</AssemblyName>
     <RootNamespace>WinPenguins</RootNamespace>
-    <Version>2.1.3</Version>
+    <Version>2.1.4</Version>
     <Authors>Michael Vines, WinPenguins Contributors</Authors>
     <Description>Modern Windows 11 desktop penguins overlay</Description>
   </PropertyGroup>

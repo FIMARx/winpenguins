@@ -39,6 +39,8 @@ public sealed class OptionsForm : Form
     private readonly List<Label> _secondaryLabels = [];
     private readonly List<Label> _accentLabels = [];
     private readonly List<FluentComboBox> _styledCombos = [];
+    private readonly FluentBufferedPanel _contentHost;
+    private int _activePageIndex;
     private int _previewFrameIndex;
     private string _previewThemeName = "Classic";
     private bool _loadingSettings;
@@ -167,6 +169,7 @@ public sealed class OptionsForm : Form
         StartPosition = FormStartPosition.CenterScreen;
         Font = _baseFont;
         ClientSize = new Size(920, 700);
+        DoubleBuffered = true;
         FluentUi.ApplyWindowChrome(this, _palette);
         SuspendLayout();
 
@@ -195,7 +198,7 @@ public sealed class OptionsForm : Form
         mainSplit.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
         // Sidebar navigation rail
-        var sidebar = new Panel
+        var sidebar = new FluentBufferedPanel
         {
             Dock = DockStyle.Fill,
             BackColor = _palette.SidebarBg,
@@ -263,7 +266,7 @@ public sealed class OptionsForm : Form
         brandTextPanel.Controls.Add(brandTitleLbl, 0, 0);
         var brandSubLbl = new Label
         {
-            Text = "v2.1.3 · Windows 11",
+            Text = "v2.1.4 · Windows 11",
             Font = _rowDescFont,
             ForeColor = _palette.TextSecondary,
             AutoSize = true,
@@ -302,24 +305,23 @@ public sealed class OptionsForm : Form
         sidebar.Controls.Add(sidebarStack);
         mainSplit.Controls.Add(sidebar, 0, 0);
 
-        var contentHost = new Panel
+        _contentHost = new FluentBufferedPanel
         {
             Dock = DockStyle.Fill,
             BackColor = _palette.WindowBg
         };
-        contentHost.SuspendLayout();
-        _layoutSuspendStack.Add(contentHost);
-        _windowBgControls.Add(contentHost);
-        mainSplit.Controls.Add(contentHost, 1, 0);
+        _contentHost.SuspendLayout();
+        _layoutSuspendStack.Add(_contentHost);
+        _windowBgControls.Add(_contentHost);
+        mainSplit.Controls.Add(_contentHost, 1, 0);
 
         // ===========================
         // Page 1: Penguins & Motion
         // ===========================
-        TableLayoutPanel page1 = CreatePage(contentHost, "Penguins & Motion", "Control colony population, movement pace, appearance, and playful physics.");
-        int p1Row = 1;
+        FluentVerticalStack page1 = CreatePage(_contentHost, "Penguins & Motion", "Control colony population, movement pace, appearance, and playful physics.");
 
-        AddSectionHeader(page1, ref p1Row, "Mood Presets");
-        TableLayoutPanel presetRows = AddCard(page1, ref p1Row);
+        AddSectionHeader(page1, "Mood Presets");
+        FluentVerticalStack presetRows = AddCard(page1);
         var presetStrip = new WrappingFlowPanel
         {
             BackColor = _palette.CardBg,
@@ -330,21 +332,20 @@ public sealed class OptionsForm : Form
         presetStrip.Controls.Add(CreatePresetButton("Winter Wonderland", ApplyWinterPreset));
         presetStrip.Controls.Add(CreatePresetButton("Party Mode", ApplyPartyPreset));
         presetStrip.Controls.Add(CreatePresetButton("Minimal Taskbar", ApplyMinimalPreset));
-        presetRows.Controls.Add(presetStrip, 0, 0);
+        presetRows.Controls.Add(presetStrip);
 
-        AddSectionHeader(page1, ref p1Row, "Colony");
-        TableLayoutPanel colonyRows = AddCard(page1, ref p1Row);
-        int cRow = 0;
-        (_countSlider, _countValueLabel) = AddSliderRow(colonyRows, ref cRow, "Penguin count", "Active penguins roaming windows and desktops", AppSettings.MinPenguins, AppSettings.MaxPenguins, v => v.ToString(CultureInfo.InvariantCulture));
-        AddDivider(colonyRows, ref cRow);
-        (_speedSlider, _speedValueLabel) = AddSliderRow(colonyRows, ref cRow, "Walk & action speed", "Adjust simulation pacing across frames", 0, AppSettings.MaxFrameDelayMs - AppSettings.MinFrameDelayMs, v => string.Create(CultureInfo.InvariantCulture, $"{45.0 / (AppSettings.MaxFrameDelayMs - v):0.0}x"));
-        AddDivider(colonyRows, ref cRow);
-        (_alphaSlider, _alphaValueLabel) = AddSliderRow(colonyRows, ref cRow, "Sprite opacity", "Blend translucency across your open apps", 15, 255, v => $"{v * 100 / 255}%");
-        AddDivider(colonyRows, ref cRow);
-        (_santaSlider, _santaValueLabel) = AddSliderRow(colonyRows, ref cRow, "Santa penguins", "Percentage of festive Santa walkers & climbers", 0, 100, v => $"{v}%");
-        AddDivider(colonyRows, ref cRow);
-        (_crewSlider, _crewValueLabel) = AddSliderRow(colonyRows, ref cRow, "Special crew mix", "Share of non-Santa penguins spawning with unique roles", 0, 100, v => $"{v}%");
-        AddDivider(colonyRows, ref cRow);
+        AddSectionHeader(page1, "Colony");
+        FluentVerticalStack colonyRows = AddCard(page1);
+        (_countSlider, _countValueLabel) = AddSliderRow(colonyRows, "Penguin count", "Active penguins roaming windows and desktops", AppSettings.MinPenguins, AppSettings.MaxPenguins, v => v.ToString(CultureInfo.InvariantCulture));
+        AddDivider(colonyRows);
+        (_speedSlider, _speedValueLabel) = AddSliderRow(colonyRows, "Walk & action speed", "Adjust simulation pacing across frames", 0, AppSettings.MaxFrameDelayMs - AppSettings.MinFrameDelayMs, v => string.Create(CultureInfo.InvariantCulture, $"{45.0 / (AppSettings.MaxFrameDelayMs - v):0.0}x"));
+        AddDivider(colonyRows);
+        (_alphaSlider, _alphaValueLabel) = AddSliderRow(colonyRows, "Sprite opacity", "Blend translucency across your open apps", 15, 255, v => $"{v * 100 / 255}%");
+        AddDivider(colonyRows);
+        (_santaSlider, _santaValueLabel) = AddSliderRow(colonyRows, "Santa penguins", "Percentage of festive Santa walkers & climbers", 0, 100, v => $"{v}%");
+        AddDivider(colonyRows);
+        (_crewSlider, _crewValueLabel) = AddSliderRow(colonyRows, "Special crew mix", "Share of non-Santa penguins spawning with unique roles", 0, 100, v => $"{v}%");
+        AddDivider(colonyRows);
 
         var chipRow = new WrappingFlowPanel
         {
@@ -366,28 +367,26 @@ public sealed class OptionsForm : Form
         chipRow.Controls.Add(_djChip);
         chipRow.Controls.Add(_jetpackChip);
         chipRow.Controls.Add(_sleepyChip);
-        AddStackedControlRow(colonyRows, ref cRow, "Enabled crew roles", "Click roles to toggle whether they spawn in your colony", chipRow);
+        AddStackedControlRow(colonyRows, "Enabled crew roles", "Click roles to toggle whether they spawn in your colony", chipRow);
 
-        AddSectionHeader(page1, ref p1Row, "Physics & Lifelike Habits");
-        TableLayoutPanel habitRows = AddCard(page1, ref p1Row);
-        int hRow = 0;
-        _idlePausesToggle = AddToggleRow(habitRows, ref hRow, "Occasional idle pauses & glances", "Walkers briefly stop to look around before continuing");
-        AddDivider(habitRows, ref hRow);
-        _parachutesToggle = AddToggleRow(habitRows, ref hRow, "Umbrella parachutes", "Allow gentle umbrella spawns and mid-air parachute rescues");
-        AddDivider(habitRows, ref hRow);
-        _neverSplatToggle = AddToggleRow(habitRows, ref hRow, "Never splat from high falls", "Penguins tumble softly back onto their feet after long drops");
-        AddDivider(habitRows, ref hRow);
-        (_splatSlider, _splatValueLabel) = AddSliderRow(habitRows, ref hRow, "Safe fall height before splat", "Used only when Never Splat is disabled", 100, 2000, v => $"{v} px");
+        AddSectionHeader(page1, "Physics & Lifelike Habits");
+        FluentVerticalStack habitRows = AddCard(page1);
+        _idlePausesToggle = AddToggleRow(habitRows, "Occasional idle pauses & glances", "Walkers briefly stop to look around before continuing");
+        AddDivider(habitRows);
+        _parachutesToggle = AddToggleRow(habitRows, "Umbrella parachutes", "Allow gentle umbrella spawns and mid-air parachute rescues");
+        AddDivider(habitRows);
+        _neverSplatToggle = AddToggleRow(habitRows, "Never splat from high falls", "Penguins tumble softly back onto their feet after long drops");
+        AddDivider(habitRows);
+        (_splatSlider, _splatValueLabel) = AddSliderRow(habitRows, "Safe fall height before splat", "Used only when Never Splat is disabled", 100, 2000, v => $"{v} px");
         _neverSplatToggle.CheckedChanged += (_, _) => _splatSlider.Enabled = !_neverSplatToggle.Checked;
 
         // ===========================
         // Page 2: Mouse, Toys & Snow
         // ===========================
-        TableLayoutPanel page2 = CreatePage(contentHost, "Mouse, Toys & Snow", "Direct pointer interactions, interactive desktop toys, and ambient weather.");
-        int p2Row = 1;
+        FluentVerticalStack page2 = CreatePage(_contentHost, "Mouse, Toys & Snow", "Direct pointer interactions, interactive desktop toys, and ambient weather.");
 
-        AddSectionHeader(page2, ref p2Row, "Quick Toybox");
-        TableLayoutPanel toyBoxRows = AddCard(page2, ref p2Row);
+        AddSectionHeader(page2, "Quick Toybox");
+        FluentVerticalStack toyBoxRows = AddCard(page2);
         var toyStrip = new WrappingFlowPanel
         {
             BackColor = _palette.CardBg,
@@ -400,36 +399,33 @@ public sealed class OptionsForm : Form
         toyStrip.Controls.Add(CreateQuickActionButton("Twin Portals", PenguinQuickAction.SpawnPortals));
         toyStrip.Controls.Add(CreateQuickActionButton("Clear Toys", PenguinQuickAction.ClearToys));
         toyStrip.Controls.Add(CreateQuickActionButton("Scatter All", PenguinQuickAction.Scatter));
-        toyBoxRows.Controls.Add(toyStrip, 0, 0);
+        toyBoxRows.Controls.Add(toyStrip);
 
-        AddSectionHeader(page2, ref p2Row, "Cursor & Desktop Atmosphere");
-        TableLayoutPanel interactRows = AddCard(page2, ref p2Row);
-        int iRow = 0;
-        _interactiveMouseToggle = AddToggleRow(interactRows, ref iRow, "Interactive mouse", "Click to hop & quack, or grab and throw across monitors");
-        AddDivider(interactRows, ref iRow);
-        _cursorPerchToggle = AddToggleRow(interactRows, ref iRow, "Cursor perch", "Penguins hop onto a stationary cursor — shake quickly to fling off");
-        AddDivider(interactRows, ref iRow);
-        _cursorAvoidToggle = AddToggleRow(interactRows, ref iRow, "Avoid mouse cursor", "Walkers scatter away whenever your pointer moves close");
-        AddDivider(interactRows, ref iRow);
-        _snowToggle = AddToggleRow(interactRows, ref iRow, "Let it snow", "Gentle falling snow settling on windows and scattering underfoot");
+        AddSectionHeader(page2, "Cursor & Desktop Atmosphere");
+        FluentVerticalStack interactRows = AddCard(page2);
+        _interactiveMouseToggle = AddToggleRow(interactRows, "Interactive mouse", "Click to hop & quack, or grab and throw across monitors");
+        AddDivider(interactRows);
+        _cursorPerchToggle = AddToggleRow(interactRows, "Cursor perch", "Penguins hop onto a stationary cursor — shake quickly to fling off");
+        AddDivider(interactRows);
+        _cursorAvoidToggle = AddToggleRow(interactRows, "Avoid mouse cursor", "Walkers scatter away whenever your pointer moves close");
+        AddDivider(interactRows);
+        _snowToggle = AddToggleRow(interactRows, "Let it snow", "Gentle falling snow settling on windows and scattering underfoot");
 
         // ===========================
         // Page 3: Audio & Ambient
         // ===========================
-        TableLayoutPanel page3 = CreatePage(contentHost, "Audio & Ambient", "Configure sound effects, music-reactive dancing, and smart auto-pause rules.");
-        int p3Row = 1;
+        FluentVerticalStack page3 = CreatePage(_contentHost, "Audio & Ambient", "Configure sound effects, music-reactive dancing, and smart auto-pause rules.");
 
-        AddSectionHeader(page3, ref p3Row, "Music & Sound Effects");
-        TableLayoutPanel audioRows = AddCard(page3, ref p3Row);
-        int aRow = 0;
-        _musicDanceToggle = AddToggleRow(audioRows, ref aRow, "Dance to playing Windows music", "Detect audio beats via WASAPI and hop in rhythm");
-        AddDivider(audioRows, ref aRow);
-        _soundEnabledToggle = AddToggleRow(audioRows, ref aRow, "Enable explosion / custom sound", "Plays on hard splats and exit bombs");
-        AddDivider(audioRows, ref aRow);
-        _actionSoundsToggle = AddToggleRow(audioRows, ref aRow, "Play grab, bounce & chirp sounds", "Play subtle Eep and Quack effects when interacting");
-        AddDivider(audioRows, ref aRow);
-        (_volumeSlider, _volumeValueLabel) = AddSliderRow(audioRows, ref aRow, "Sound volume", "Master WAV output level", 0, 100, v => $"{v}%");
-        AddDivider(audioRows, ref aRow);
+        AddSectionHeader(page3, "Music & Sound Effects");
+        FluentVerticalStack audioRows = AddCard(page3);
+        _musicDanceToggle = AddToggleRow(audioRows, "Dance to playing Windows music", "Detect audio beats via WASAPI and hop in rhythm");
+        AddDivider(audioRows);
+        _soundEnabledToggle = AddToggleRow(audioRows, "Enable explosion / custom sound", "Plays on hard splats and exit bombs");
+        AddDivider(audioRows);
+        _actionSoundsToggle = AddToggleRow(audioRows, "Play grab, bounce & chirp sounds", "Play subtle Eep and Quack effects when interacting");
+        AddDivider(audioRows);
+        (_volumeSlider, _volumeValueLabel) = AddSliderRow(audioRows, "Sound volume", "Master WAV output level", 0, 100, v => $"{v}%");
+        AddDivider(audioRows);
 
         _builtInSoundCombo = CreateStyledComboBox(DropDownStyle: ComboBoxStyle.DropDownList, width: 175);
         _builtInSoundCombo.Items.AddRange(new object[]
@@ -442,8 +438,8 @@ public sealed class OptionsForm : Form
         var testBtn = CreateSecondaryButton("Test", 74);
         testBtn.Click += (_, _) => _soundPlayer.PlayTest(GetSelectedBuiltInSound(), _customSoundBox.Text.Trim(), _volumeSlider.Value);
         var builtInRight = CreateInlinePair(_builtInSoundCombo, testBtn);
-        AddControlRow(audioRows, ref aRow, "Explosion sound effect", "Built-in WAV sound when custom .wav is empty", builtInRight);
-        AddDivider(audioRows, ref aRow);
+        AddControlRow(audioRows, "Explosion sound effect", "Built-in WAV sound when custom .wav is empty", builtInRight);
+        AddDivider(audioRows);
 
         var browseBtn = CreateSecondaryButton("Browse...", 86);
         browseBtn.Margin = new Padding(0, 0, 6, 0);
@@ -453,7 +449,6 @@ public sealed class OptionsForm : Form
 
         var customRow = new TableLayoutPanel
         {
-            Dock = DockStyle.Top,
             AutoSize = true,
             ColumnCount = 3,
             Margin = new Padding(0, 4, 0, 2)
@@ -465,35 +460,31 @@ public sealed class OptionsForm : Form
         customRow.Controls.Add(browseBtn, 1, 0);
         customRow.Controls.Add(clearBtn, 2, 0);
 
-        AddStackedControlRow(audioRows, ref aRow, "Custom .wav sound (optional)", "Overrides built-in explosion sound when set", customRow);
+        AddStackedControlRow(audioRows, "Custom .wav sound (optional)", "Overrides built-in explosion sound when set", customRow);
 
-        AddSectionHeader(page3, ref p3Row, "Smart Auto-Pause");
-        TableLayoutPanel pauseRows = AddCard(page3, ref p3Row);
-        int paRow = 0;
-        _hideFullscreenToggle = AddToggleRow(pauseRows, ref paRow, "Hide during fullscreen apps & games", "Automatically pauses overlay when a borderless/fullscreen app is active");
-        AddDivider(pauseRows, ref paRow);
-        _pauseFocusToggle = AddToggleRow(pauseRows, ref paRow, "Pause during Presentation Mode / Focus Assist", "Respects Windows Quiet Hours and active presentations");
-        AddDivider(pauseRows, ref paRow);
-        _pauseBatterySaverToggle = AddToggleRow(pauseRows, ref paRow, "Pause on Windows Battery Saver", "Conserves power when laptop battery saver engages");
-        AddDivider(pauseRows, ref paRow);
-        _pauseRecordingToggle = AddToggleRow(pauseRows, ref paRow, "Pause while recording / streaming apps run", "Stops desktop activity whenever matching executables are open");
+        AddSectionHeader(page3, "Smart Auto-Pause");
+        FluentVerticalStack pauseRows = AddCard(page3);
+        _hideFullscreenToggle = AddToggleRow(pauseRows, "Hide during fullscreen apps & games", "Automatically pauses overlay when a borderless/fullscreen app is active");
+        AddDivider(pauseRows);
+        _pauseFocusToggle = AddToggleRow(pauseRows, "Pause during Presentation Mode / Focus Assist", "Respects Windows Quiet Hours and active presentations");
+        AddDivider(pauseRows);
+        _pauseBatterySaverToggle = AddToggleRow(pauseRows, "Pause on Windows Battery Saver", "Conserves power when laptop battery saver engages");
+        AddDivider(pauseRows);
+        _pauseRecordingToggle = AddToggleRow(pauseRows, "Pause while recording / streaming apps run", "Stops desktop activity whenever matching executables are open");
 
         _recordingProcBox = new TextBox { Font = Font };
         _pauseRecordingToggle.CheckedChanged += (_, _) => _recordingProcBox.Enabled = _pauseRecordingToggle.Checked;
         Control recHost = FluentUi.WrapTextBox(_recordingProcBox, _palette, new Padding(0, 6, 0, 2));
-        recHost.Dock = DockStyle.Top;
-        pauseRows.Controls.Add(recHost, 0, paRow++);
-        pauseRows.SetColumnSpan(recHost, 2);
+        recHost.Dock = DockStyle.None;
+        pauseRows.Controls.Add(recHost);
 
         // ===========================
         // Page 4: Display & Monitors
         // ===========================
-        TableLayoutPanel page4 = CreatePage(contentHost, "Display & Monitors", "Multi-monitor DPI scaling, window layering, frame pacing, and exclusions.");
-        int p4Row = 1;
+        FluentVerticalStack page4 = CreatePage(_contentHost, "Display & Monitors", "Multi-monitor DPI scaling, window layering, frame pacing, and exclusions.");
 
-        AddSectionHeader(page4, ref p4Row, "Rendering & Scaling");
-        TableLayoutPanel renderRows = AddCard(page4, ref p4Row);
-        int rRow = 0;
+        AddSectionHeader(page4, "Rendering & Scaling");
+        FluentVerticalStack renderRows = AddCard(page4);
 
         _scaleCombo = CreateStyledComboBox(ComboBoxStyle.DropDownList, 235);
         _scaleCombo.Items.AddRange(new object[]
@@ -505,8 +496,8 @@ public sealed class OptionsForm : Form
             new ComboItem<SpriteScaleMode>(SpriteScaleMode.X3, "300% (96×96 Big)")
         });
         _scaleCombo.SelectedIndexChanged += (_, _) => ScheduleLiveApply();
-        AddControlRow(renderRows, ref rRow, "Sprite size scale", "Per-monitor Auto scales penguins dynamically per screen", _scaleCombo);
-        AddDivider(renderRows, ref rRow);
+        AddControlRow(renderRows, "Sprite size scale", "Per-monitor Auto scales penguins dynamically per screen", _scaleCombo);
+        AddDivider(renderRows);
 
         _layerCombo = CreateStyledComboBox(ComboBoxStyle.DropDownList, 235);
         _layerCombo.Items.AddRange(new object[]
@@ -515,8 +506,8 @@ public sealed class OptionsForm : Form
             new ComboItem<OverlayLayerMode>(OverlayLayerMode.DesktopOnly, "Desktop wallpaper level only")
         });
         _layerCombo.SelectedIndexChanged += (_, _) => ScheduleLiveApply();
-        AddControlRow(renderRows, ref rRow, "Overlay layer", "Choose whether penguins walk on open app windows or only on desktop", _layerCombo);
-        AddDivider(renderRows, ref rRow);
+        AddControlRow(renderRows, "Overlay layer", "Choose whether penguins walk on open app windows or only on desktop", _layerCombo);
+        AddDivider(renderRows);
 
         _fpsCombo = CreateStyledComboBox(ComboBoxStyle.DropDownList, 235);
         _fpsCombo.Items.AddRange(new object[]
@@ -526,17 +517,16 @@ public sealed class OptionsForm : Form
             new ComboItem<int>(240, "240 FPS (Ultra smooth)")
         });
         _fpsCombo.SelectedIndexChanged += (_, _) => ScheduleLiveApply();
-        AddControlRow(renderRows, ref rRow, "Render frame rate", "High-resolution DirectComposition refresh target", _fpsCombo);
+        AddControlRow(renderRows, "Render frame rate", "High-resolution DirectComposition refresh target", _fpsCombo);
 
-        AddSectionHeader(page4, ref p4Row, "Windows & Startup");
-        TableLayoutPanel winRows = AddCard(page4, ref p4Row);
-        int wRow = 0;
-        _primaryOnlyToggle = AddToggleRow(winRows, ref wRow, "Primary monitor only", "Restrict roaming to your main display instead of all monitors");
-        AddDivider(winRows, ref wRow);
-        _ignoreMaxToggle = AddToggleRow(winRows, ref wRow, "Ignore maximized windows", "Walk cleanly along taskbar and floating popups instead of window bottoms");
-        AddDivider(winRows, ref wRow);
-        _startupToggle = AddToggleRow(winRows, ref wRow, "Launch automatically with Windows", "Start minimized to system tray when you sign in");
-        AddDivider(winRows, ref wRow);
+        AddSectionHeader(page4, "Windows & Startup");
+        FluentVerticalStack winRows = AddCard(page4);
+        _primaryOnlyToggle = AddToggleRow(winRows, "Primary monitor only", "Restrict roaming to your main display instead of all monitors");
+        AddDivider(winRows);
+        _ignoreMaxToggle = AddToggleRow(winRows, "Ignore maximized windows", "Walk cleanly along taskbar and floating popups instead of window bottoms");
+        AddDivider(winRows);
+        _startupToggle = AddToggleRow(winRows, "Launch automatically with Windows", "Start minimized to system tray when you sign in");
+        AddDivider(winRows);
 
         _ignoredProcessesBox = new TextBox
         {
@@ -546,45 +536,35 @@ public sealed class OptionsForm : Form
             Font = Font
         };
         Control ignHost = FluentUi.WrapTextBox(_ignoredProcessesBox, _palette, new Padding(0, 6, 0, 2), height: 74);
-        ignHost.Dock = DockStyle.Top;
-        AddStackedControlRow(winRows, ref wRow, "Ignored applications (No collisions / No fullscreen pause)", "Comma or newline separated process names (e.g. spotify, discord, obs64)", ignHost);
+        ignHost.Dock = DockStyle.None;
+        AddStackedControlRow(winRows, "Ignored applications (No collisions / No fullscreen pause)", "Comma or newline separated process names (e.g. spotify, discord, obs64)", ignHost);
 
         // ===========================
         // Page 5: Themes & Hotkeys
         // ===========================
-        TableLayoutPanel page5 = CreatePage(contentHost, "Themes & Hotkeys", "Switch built-in sprite styles, import custom packs, and bind your global pause shortcut.");
-        int p5Row = 1;
+        FluentVerticalStack page5 = CreatePage(_contentHost, "Themes & Hotkeys", "Switch built-in sprite styles, import custom packs, and bind your global pause shortcut.");
 
-        AddSectionHeader(page5, ref p5Row, "Theme Studio");
-        TableLayoutPanel themeRows = AddCard(page5, ref p5Row);
+        AddSectionHeader(page5, "Theme Studio");
+        FluentVerticalStack themeRows = AddCard(page5);
 
-        var themeSplit = new TableLayoutPanel
+        var themeLeft = new FluentVerticalStack
         {
-            Dock = DockStyle.Top,
-            AutoSize = true,
-            ColumnCount = 2
+            BackColor = _palette.CardBg,
+            Margin = new Padding(0)
         };
-        themeSplit.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        themeSplit.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-
-        var themeLeft = new TableLayoutPanel
-        {
-            Dock = DockStyle.Top,
-            AutoSize = true,
-            ColumnCount = 1,
-            Margin = new Padding(0, 0, 14, 0)
-        };
-        themeLeft.Controls.Add(new Label
+        _cardBgControls.Add(themeLeft);
+        var activePackLbl = new Label
         {
             Text = "Active sprite pack",
             Font = _rowTitleFont,
             ForeColor = _palette.TextPrimary,
             AutoSize = true,
             Margin = new Padding(0, 0, 0, 6)
-        }, 0, 0);
+        };
+        _primaryLabels.Add(activePackLbl);
+        themeLeft.Controls.Add(activePackLbl);
 
         _themeCombo = CreateStyledComboBox(ComboBoxStyle.DropDownList, 280);
-        _themeCombo.Dock = DockStyle.Top;
         _themeCombo.Margin = new Padding(0, 0, 0, 10);
         _themeCombo.SelectedIndexChanged += (_, _) =>
         {
@@ -596,7 +576,7 @@ public sealed class OptionsForm : Form
             RefreshThemePreview();
             ScheduleLiveApply();
         };
-        themeLeft.Controls.Add(_themeCombo, 0, 1);
+        themeLeft.Controls.Add(_themeCombo);
 
         var themeActions = new WrappingFlowPanel
         {
@@ -620,7 +600,7 @@ public sealed class OptionsForm : Form
         themeActions.Controls.Add(importBtn);
         themeActions.Controls.Add(createSampleBtn);
         themeActions.Controls.Add(openThemesBtn);
-        themeLeft.Controls.Add(themeActions, 0, 2);
+        themeLeft.Controls.Add(themeActions);
 
         var themeHelpLbl = new Label
         {
@@ -629,11 +609,10 @@ public sealed class OptionsForm : Form
             ForeColor = _palette.TextSecondary,
             UseMnemonic = false,
             AutoSize = true,
-            MaximumSize = new Size(440, 0),
             Margin = new Padding(0, 2, 0, 0)
         };
         _secondaryLabels.Add(themeHelpLbl);
-        themeLeft.Controls.Add(themeHelpLbl, 0, 3);
+        themeLeft.Controls.Add(themeHelpLbl);
 
         if (themeRows.Parent is Control themeCard)
         {
@@ -642,7 +621,7 @@ public sealed class OptionsForm : Form
             themeCard.DragDrop += OnThemeCardDragDrop;
         }
 
-        var previewStage = new Panel
+        var previewStage = new FluentBufferedPanel
         {
             Size = new Size(92, 110),
             Padding = new Padding(4),
@@ -669,15 +648,15 @@ public sealed class OptionsForm : Form
         previewStage.Controls.Add(_previewPictureBox);
         previewStage.Controls.Add(_previewCaptionLabel);
 
-        themeSplit.Controls.Add(themeLeft, 0, 0);
-        themeSplit.Controls.Add(previewStage, 1, 0);
-        themeRows.Controls.Add(themeSplit, 0, 0);
+        var themeSplit = new FluentSideBySidePanel(themeLeft, previewStage, _palette.CardBg);
+        _cardBgControls.Add(themeSplit);
+        _cardBgControls.Add(previewStage);
+        themeRows.Controls.Add(themeSplit);
 
-        AddSectionHeader(page5, ref p5Row, "Global Pause Shortcut");
-        TableLayoutPanel hotkeyRows = AddCard(page5, ref p5Row);
-        int hkRow = 0;
-        _enableHotkeyToggle = AddToggleRow(hotkeyRows, ref hkRow, "Enable global pause / resume shortcut", "Works system-wide from any app");
-        AddDivider(hotkeyRows, ref hkRow);
+        AddSectionHeader(page5, "Global Pause Shortcut");
+        FluentVerticalStack hotkeyRows = AddCard(page5);
+        _enableHotkeyToggle = AddToggleRow(hotkeyRows, "Enable global pause / resume shortcut", "Works system-wide from any app");
+        AddDivider(hotkeyRows);
 
         _hotkeyCombo = CreateStyledComboBox(ComboBoxStyle.DropDown, 175);
         foreach (string preset in GlobalHotkeyParser.Presets)
@@ -692,7 +671,7 @@ public sealed class OptionsForm : Form
             Margin = new Padding(10, 5, 0, 0)
         };
         var hotkeyRight = CreateInlinePair(_hotkeyCombo, _hotkeyStatusLabel);
-        AddControlRow(hotkeyRows, ref hkRow, "Key combination", "Requires Modifier + Key (e.g. Ctrl+Alt+P)", hotkeyRight);
+        AddControlRow(hotkeyRows, "Key combination", "Requires Modifier + Key (e.g. Ctrl+Alt+P)", hotkeyRight);
 
         _enableHotkeyToggle.CheckedChanged += (_, _) =>
         {
@@ -710,7 +689,7 @@ public sealed class OptionsForm : Form
         SelectPage(0);
 
         // Bottom footer action bar
-        var footerPanel = new Panel
+        var footerPanel = new FluentBufferedPanel
         {
             Dock = DockStyle.Fill,
             Height = 58,
@@ -827,10 +806,16 @@ public sealed class OptionsForm : Form
         {
             SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
             _previewTimer.Stop();
-            _previewTimer.Dispose();
             _liveApplyTimer.Stop();
-            _liveApplyTimer.Dispose();
             _previewPictureBox.Image = null;
+        }
+
+        base.Dispose(disposing);
+
+        if (disposing)
+        {
+            _previewTimer.Dispose();
+            _liveApplyTimer.Dispose();
             ClearPreviewFrames();
             _brandBitmap.Dispose();
             _baseFont.Dispose();
@@ -841,8 +826,6 @@ public sealed class OptionsForm : Form
             _brandTitleFont.Dispose();
             _badgeFont.Dispose();
         }
-
-        base.Dispose(disposing);
     }
 
     private void ApplyCurrent()
@@ -1305,7 +1288,7 @@ public sealed class OptionsForm : Form
             if (_previewFrames.Count > 0)
             {
                 _previewPictureBox.Image = _previewFrames[0];
-                if (_previewFrames.Count > 1)
+                if (_previewFrames.Count > 1 && _activePageIndex == 4)
                 {
                     _previewTimer.Start();
                 }
@@ -1394,17 +1377,61 @@ public sealed class OptionsForm : Form
 
     internal void SelectPage(int activeIndex)
     {
-        for (int i = 0; i < _pages.Count; i++)
+        _activePageIndex = activeIndex;
+        bool hasRedrawLock = _contentHost.IsHandleCreated;
+        if (hasRedrawLock)
         {
-            bool active = i == activeIndex;
-            _pages[i].Button.Selected = active;
-            _pages[i].Page.Visible = active;
+            _ = NativeMethods.SendMessage(_contentHost.Handle, NativeMethods.WM_SETREDRAW, IntPtr.Zero, IntPtr.Zero);
+        }
+
+        _contentHost.SuspendLayout();
+        try
+        {
+            for (int i = 0; i < _pages.Count; i++)
+            {
+                bool active = i == activeIndex;
+                _pages[i].Button.Selected = active;
+                _pages[i].Page.Visible = active;
+            }
+        }
+        finally
+        {
+            _contentHost.ResumeLayout(performLayout: false);
+            Panel activePage = _pages[activeIndex].Page;
+            Rectangle targetBounds = _contentHost.ClientRectangle;
+            if (activePage.Parent == _contentHost &&
+                targetBounds.Width > 0 &&
+                targetBounds.Height > 0 &&
+                (activePage.Bounds != targetBounds || activePage.Tag is not int laidOutW || laidOutW != targetBounds.Width))
+            {
+                activePage.Tag = targetBounds.Width;
+                activePage.Bounds = targetBounds;
+                activePage.PerformLayout();
+            }
+
+            if (hasRedrawLock)
+            {
+                _ = NativeMethods.SendMessage(_contentHost.Handle, NativeMethods.WM_SETREDRAW, new IntPtr(1), IntPtr.Zero);
+                _contentHost.Invalidate(invalidateChildren: true);
+            }
+        }
+
+        if (_previewTimer is not null)
+        {
+            if (activeIndex == 4 && _previewFrames.Count > 1)
+            {
+                _previewTimer.Start();
+            }
+            else
+            {
+                _previewTimer.Stop();
+            }
         }
     }
 
-    private TableLayoutPanel CreatePage(Panel host, string title, string subtitle)
+    private FluentVerticalStack CreatePage(Panel host, string title, string subtitle)
     {
-        var scrollHost = new Panel
+        var scrollHost = new FluentBufferedPanel
         {
             Dock = DockStyle.Fill,
             AutoScroll = true,
@@ -1414,21 +1441,15 @@ public sealed class OptionsForm : Form
         };
         _windowBgControls.Add(scrollHost);
 
-        var stack = new TableLayoutPanel
+        var stack = new FluentVerticalStack
         {
             Dock = DockStyle.Top,
-            AutoSize = true,
-            ColumnCount = 1,
             BackColor = _palette.WindowBg
         };
         _windowBgControls.Add(stack);
-        stack.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
-        var header = new TableLayoutPanel
+        var header = new FluentVerticalStack
         {
-            Dock = DockStyle.Top,
-            AutoSize = true,
-            ColumnCount = 1,
             Margin = new Padding(0, 0, 0, 12),
             BackColor = _palette.WindowBg
         };
@@ -1443,7 +1464,7 @@ public sealed class OptionsForm : Form
             Margin = new Padding(0, 0, 0, 2)
         };
         _primaryLabels.Add(titleLbl);
-        header.Controls.Add(titleLbl, 0, 0);
+        header.Controls.Add(titleLbl);
 
         var subLbl = new Label
         {
@@ -1455,33 +1476,19 @@ public sealed class OptionsForm : Form
             Margin = new Padding(0)
         };
         _secondaryLabels.Add(subLbl);
-        header.Controls.Add(subLbl, 0, 1);
-
-        header.SizeChanged += (_, _) =>
-        {
-            int maxW = Math.Max(200, header.ClientSize.Width - 6);
-            if (titleLbl.MaximumSize.Width != maxW)
-            {
-                titleLbl.MaximumSize = new Size(maxW, 0);
-            }
-
-            if (subLbl.MaximumSize.Width != maxW)
-            {
-                subLbl.MaximumSize = new Size(maxW, 0);
-            }
-        };
+        header.Controls.Add(subLbl);
 
         scrollHost.SuspendLayout();
         stack.SuspendLayout();
         _layoutSuspendStack.Add(scrollHost);
         _layoutSuspendStack.Add(stack);
-        stack.Controls.Add(header, 0, 0);
+        stack.Controls.Add(header);
         scrollHost.Controls.Add(stack);
         host.Controls.Add(scrollHost);
         return stack;
     }
 
-    private void AddSectionHeader(TableLayoutPanel page, ref int row, string title)
+    private void AddSectionHeader(FluentVerticalStack page, string title)
     {
         var lbl = new Label
         {
@@ -1493,94 +1500,91 @@ public sealed class OptionsForm : Form
             Margin = new Padding(2, 6, 0, 6)
         };
         _primaryLabels.Add(lbl);
-        page.Controls.Add(lbl, 0, row++);
+        page.Controls.Add(lbl);
     }
 
-    private TableLayoutPanel AddCard(TableLayoutPanel page, ref int row)
+    private FluentVerticalStack AddCard(FluentVerticalStack page)
     {
         var card = new FluentCard(_palette)
         {
-            Dock = DockStyle.Top,
-            AutoSize = true,
-            AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            Height = 1
+            AutoSize = true
         };
         _windowBgControls.Add(card);
-        var rows = new TableLayoutPanel
+        var rows = new FluentVerticalStack
         {
-            Dock = DockStyle.Top,
-            AutoSize = true,
-            AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            Height = 1,
-            ColumnCount = 1,
             BackColor = _palette.CardBg
         };
         _cardBgControls.Add(rows);
-        rows.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         rows.SuspendLayout();
         card.SuspendLayout();
         _layoutSuspendStack.Add(card);
         _layoutSuspendStack.Add(rows);
         card.Controls.Add(rows);
-        page.Controls.Add(card, 0, row++);
+        page.Controls.Add(card);
         return rows;
     }
 
-    private void AddDivider(TableLayoutPanel rows, ref int row)
+    private void AddDivider(FluentVerticalStack rows)
     {
         var line = new Panel
         {
             Height = 1,
-            Dock = DockStyle.Top,
             BackColor = _palette.Divider,
             Margin = new Padding(0, 5, 0, 5)
         };
         _dividerControls.Add(line);
-        rows.Controls.Add(line, 0, row++);
+        rows.Controls.Add(line);
+    }
+
+    private FluentSettingRowPanel CreateSettingRow(
+        string title,
+        string subtitle,
+        Control? rightControl = null,
+        Control? bottomControl = null)
+    {
+        var rowPanel = new FluentSettingRowPanel(
+            _palette,
+            title,
+            subtitle,
+            _rowTitleFont,
+            _rowDescFont,
+            rightControl,
+            bottomControl);
+        _cardBgControls.Add(rowPanel);
+        _primaryLabels.Add(rowPanel.TitleLabel);
+        if (rowPanel.SubtitleLabel is not null)
+        {
+            _secondaryLabels.Add(rowPanel.SubtitleLabel);
+        }
+
+        return rowPanel;
     }
 
     private (FluentSlider Slider, Label ValueLabel) AddSliderRow(
-        TableLayoutPanel rows,
-        ref int row,
+        FluentVerticalStack rows,
         string title,
         string subtitle,
         int min,
         int max,
         Func<int, string> formatter)
     {
-        var rowGrid = new TableLayoutPanel
-        {
-            Dock = DockStyle.Top,
-            AutoSize = true,
-            ColumnCount = 2,
-            BackColor = _palette.CardBg,
-            Margin = new Padding(0, 2, 0, 2)
-        };
-        rowGrid.SuspendLayout();
-        _layoutSuspendStack.Add(rowGrid);
-        _cardBgControls.Add(rowGrid);
-        rowGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        rowGrid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-
-        rowGrid.Controls.Add(CreateTitleStack(title, subtitle), 0, 0);
-
+        Size badgeSize = TextRenderer.MeasureText("2000 px", _badgeFont);
         var valueLabel = new Label
         {
             Text = formatter(min),
             Font = _badgeFont,
             ForeColor = _palette.Accent,
-            AutoSize = true,
-            Anchor = AnchorStyles.Right,
-            Margin = new Padding(8, 4, 0, 0)
+            AutoSize = false,
+            Size = new Size(Math.Max(72, badgeSize.Width + 10), Math.Max(22, badgeSize.Height + 4)),
+            TextAlign = ContentAlignment.MiddleRight,
+            Margin = new Padding(8, 2, 0, 0)
         };
         _accentLabels.Add(valueLabel);
-        rowGrid.Controls.Add(valueLabel, 1, 0);
 
         var slider = new FluentSlider(_palette)
         {
             Minimum = min,
             Maximum = max,
-            Dock = DockStyle.Top,
             Margin = new Padding(0, 4, 0, 2)
         };
         slider.ValueChanged += (_, _) =>
@@ -1589,36 +1593,19 @@ public sealed class OptionsForm : Form
             ScheduleLiveApply();
         };
 
-        rowGrid.Controls.Add(slider, 0, 1);
-        rowGrid.SetColumnSpan(slider, 2);
-
-        rows.Controls.Add(rowGrid, 0, row++);
+        rows.Controls.Add(CreateSettingRow(title, subtitle, rightControl: valueLabel, bottomControl: slider));
         return (slider, valueLabel);
     }
 
-    private FluentToggleSwitch AddToggleRow(TableLayoutPanel rows, ref int row, string title, string subtitle)
+    private FluentToggleSwitch AddToggleRow(FluentVerticalStack rows, string title, string subtitle)
     {
-        var rowGrid = new TableLayoutPanel
-        {
-            Dock = DockStyle.Top,
-            AutoSize = true,
-            ColumnCount = 2,
-            BackColor = _palette.CardBg,
-            Margin = new Padding(0, 2, 0, 2)
-        };
-        rowGrid.SuspendLayout();
-        _layoutSuspendStack.Add(rowGrid);
-        _cardBgControls.Add(rowGrid);
-        rowGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        rowGrid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-
-        TableLayoutPanel titleStack = CreateTitleStack(title, subtitle);
         var toggle = new FluentToggleSwitch(_palette)
         {
-            Anchor = AnchorStyles.Right,
             Margin = new Padding(12, 4, 0, 4)
         };
         toggle.CheckedChanged += (_, _) => ScheduleLiveApply();
+
+        FluentSettingRowPanel rowPanel = CreateSettingRow(title, subtitle, rightControl: toggle);
 
         void ToggleOnLabelClick(object? sender, EventArgs e)
         {
@@ -1627,116 +1614,26 @@ public sealed class OptionsForm : Form
                 toggle.Checked = !toggle.Checked;
             }
         }
-        titleStack.Click += ToggleOnLabelClick;
-        foreach (Control child in titleStack.Controls)
+
+        rowPanel.Click += ToggleOnLabelClick;
+        rowPanel.TitleLabel.Click += ToggleOnLabelClick;
+        if (rowPanel.SubtitleLabel is not null)
         {
-            child.Click += ToggleOnLabelClick;
+            rowPanel.SubtitleLabel.Click += ToggleOnLabelClick;
         }
 
-        rowGrid.Controls.Add(titleStack, 0, 0);
-        rowGrid.Controls.Add(toggle, 1, 0);
-        rows.Controls.Add(rowGrid, 0, row++);
+        rows.Controls.Add(rowPanel);
         return toggle;
     }
 
-    private void AddControlRow(TableLayoutPanel rows, ref int row, string title, string subtitle, Control rightControl)
+    private void AddControlRow(FluentVerticalStack rows, string title, string subtitle, Control rightControl)
     {
-        var rowGrid = new TableLayoutPanel
-        {
-            Dock = DockStyle.Top,
-            AutoSize = true,
-            ColumnCount = 2,
-            BackColor = _palette.CardBg,
-            Margin = new Padding(0, 2, 0, 2)
-        };
-        rowGrid.SuspendLayout();
-        _layoutSuspendStack.Add(rowGrid);
-        _cardBgControls.Add(rowGrid);
-        rowGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        rowGrid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-
-        rowGrid.SuspendLayout();
-        _layoutSuspendStack.Add(rowGrid);
-        rightControl.Anchor = AnchorStyles.Right;
-        rowGrid.Controls.Add(CreateTitleStack(title, subtitle), 0, 0);
-        rowGrid.Controls.Add(rightControl, 1, 0);
-        rows.Controls.Add(rowGrid, 0, row++);
+        rows.Controls.Add(CreateSettingRow(title, subtitle, rightControl: rightControl));
     }
 
-    private void AddStackedControlRow(TableLayoutPanel rows, ref int row, string title, string subtitle, Control bottomControl)
+    private void AddStackedControlRow(FluentVerticalStack rows, string title, string subtitle, Control bottomControl)
     {
-        var rowGrid = new TableLayoutPanel
-        {
-            Dock = DockStyle.Top,
-            AutoSize = true,
-            ColumnCount = 1,
-            BackColor = _palette.CardBg,
-            Margin = new Padding(0, 2, 0, 2)
-        };
-        _cardBgControls.Add(rowGrid);
-        rowGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        rowGrid.SuspendLayout();
-        _layoutSuspendStack.Add(rowGrid);
-        rowGrid.Controls.Add(CreateTitleStack(title, subtitle), 0, 0);
-        rowGrid.Controls.Add(bottomControl, 0, 1);
-        rows.Controls.Add(rowGrid, 0, row++);
-    }
-
-    private TableLayoutPanel CreateTitleStack(string title, string subtitle)
-    {
-        var stack = new TableLayoutPanel
-        {
-            Dock = DockStyle.Top,
-            AutoSize = true,
-            ColumnCount = 1,
-            BackColor = _palette.CardBg,
-            Margin = new Padding(0)
-        };
-        stack.SuspendLayout();
-        _layoutSuspendStack.Add(stack);
-        _cardBgControls.Add(stack);
-        var titleLbl = new Label
-        {
-            Text = title,
-            Font = _rowTitleFont,
-            ForeColor = _palette.TextPrimary,
-            UseMnemonic = false,
-            AutoSize = true,
-            Margin = new Padding(0, 1, 0, 1)
-        };
-        _primaryLabels.Add(titleLbl);
-        stack.Controls.Add(titleLbl, 0, 0);
-        Label? subLbl = null;
-        if (!string.IsNullOrWhiteSpace(subtitle))
-        {
-            subLbl = new Label
-            {
-                Text = subtitle,
-                Font = _rowDescFont,
-                ForeColor = _palette.TextSecondary,
-                UseMnemonic = false,
-                AutoSize = true,
-                MaximumSize = new Size(190, 0),
-                Margin = new Padding(0, 0, 0, 2)
-            };
-            _secondaryLabels.Add(subLbl);
-            stack.Controls.Add(subLbl, 0, 1);
-        }
-
-        stack.SizeChanged += (_, _) =>
-        {
-            int maxW = Math.Max(140, stack.ClientSize.Width - 6);
-            if (titleLbl.MaximumSize.Width != maxW)
-            {
-                titleLbl.MaximumSize = new Size(maxW, 0);
-            }
-
-            if (subLbl != null && subLbl.MaximumSize.Width != maxW)
-            {
-                subLbl.MaximumSize = new Size(maxW, 0);
-            }
-        };
-        return stack;
+        rows.Controls.Add(CreateSettingRow(title, subtitle, bottomControl: bottomControl));
     }
 
     private ComboBox CreateStyledComboBox(ComboBoxStyle DropDownStyle, int width)

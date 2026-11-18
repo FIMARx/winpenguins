@@ -214,46 +214,69 @@ internal static class FluentUi
     private static void ApplyDropDownTheme(ToolStripDropDown dropDown, FluentPalette palette, FluentMenuRenderer renderer)
     {
         dropDown.Renderer = renderer;
-        // Keep horizontal drop-down padding at 0 so ToolStripDropDown.GetPreferredSize matches item widths cleanly.
-        dropDown.Padding = new Padding(0, 5, 0, 5);
         dropDown.DropShadowEnabled = true;
 
+        bool hasChecks = dropDown is ContextMenuStrip || HasCheckableItem(dropDown);
         if (dropDown is ToolStripDropDownMenu dropDownMenu)
         {
             dropDownMenu.ShowImageMargin = false;
-            dropDownMenu.ShowCheckMargin = true;
+            dropDownMenu.ShowCheckMargin = hasChecks;
         }
 
         ApplyDropDownColors(dropDown, palette);
+        ApplyMenuDwmChrome(dropDown, palette);
 
-        if (dropDown.Tag is not string marker || !string.Equals(marker, "FluentMenuChrome", StringComparison.Ordinal))
-        {
-            dropDown.Tag = "FluentMenuChrome";
-            dropDown.HandleCreated += (_, _) =>
-            {
-                if (dropDown.IsHandleCreated)
-                {
-                    ApplyDwmAttributes(dropDown.Handle, renderer.Palette.IsDark, roundCorners: true);
-                }
-            };
-        }
-
-        if (dropDown.IsHandleCreated)
-        {
-            ApplyDwmAttributes(dropDown.Handle, renderer.Palette.IsDark, roundCorners: true);
-        }
-
+        Padding itemPad = hasChecks ? new Padding(1, 5, 10, 5) : new Padding(5, 5, 7, 5);
         foreach (ToolStripItem item in dropDown.Items)
         {
             if (item is ToolStripMenuItem menuItem)
             {
-                menuItem.Padding = new Padding(4, 5, 10, 5);
+                menuItem.Padding = itemPad;
                 menuItem.Margin = new Padding(0, 1, 0, 1);
                 if (menuItem.HasDropDownItems)
                 {
                     ApplyDropDownTheme(menuItem.DropDown, palette, renderer);
                 }
             }
+            else if (item is ToolStripSeparator sep)
+            {
+                sep.Margin = new Padding(0, 2, 0, 2);
+                sep.Height = 7;
+            }
+        }
+    }
+
+    private static bool HasCheckableItem(ToolStripDropDown dropDown)
+    {
+        foreach (ToolStripItem item in dropDown.Items)
+        {
+            if (item is ToolStripMenuItem menuItem &&
+                (menuItem.CheckOnClick || menuItem.Checked || menuItem.CheckState != CheckState.Unchecked))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static void ApplyMenuDwmChrome(ToolStripDropDown dropDown, FluentPalette palette)
+    {
+        if (dropDown.Tag is not string marker || !string.Equals(marker, "FluentMenuChrome", StringComparison.Ordinal))
+        {
+            dropDown.Tag = "FluentMenuChrome";
+            dropDown.HandleCreated += (_, _) =>
+            {
+                if (dropDown.IsHandleCreated && dropDown.Renderer is FluentMenuRenderer activeRenderer)
+                {
+                    ApplyDwmAttributes(dropDown.Handle, activeRenderer.Palette.IsDark, roundCorners: true, activeRenderer.Palette.CardBorder);
+                }
+            };
+        }
+
+        if (dropDown.IsHandleCreated)
+        {
+            ApplyDwmAttributes(dropDown.Handle, palette.IsDark, roundCorners: true, palette.CardBorder);
         }
     }
 
@@ -262,7 +285,7 @@ internal static class FluentUi
         ApplyDropDownColors(dropDown, palette);
         if (dropDown.IsHandleCreated)
         {
-            ApplyDwmAttributes(dropDown.Handle, palette.IsDark, roundCorners: true);
+            ApplyDwmAttributes(dropDown.Handle, palette.IsDark, roundCorners: true, palette.CardBorder);
         }
 
         foreach (ToolStripItem item in dropDown.Items)
@@ -280,7 +303,7 @@ internal static class FluentUi
         dropDown.ForeColor = palette.TextPrimary;
     }
 
-    private static void ApplyDwmAttributes(IntPtr handle, bool isDark, bool roundCorners)
+    private static void ApplyDwmAttributes(IntPtr handle, bool isDark, bool roundCorners, Color? borderColor = null)
     {
         try
         {
@@ -290,6 +313,12 @@ internal static class FluentUi
             {
                 int round = NativeMethods.DWMWCP_ROUND;
                 _ = NativeMethods.DwmSetWindowAttribute(handle, NativeMethods.DWMWA_WINDOW_CORNER_PREFERENCE, ref round, sizeof(int));
+            }
+
+            if (borderColor is Color bc && OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
+            {
+                int colorRef = ColorTranslator.ToWin32(bc);
+                _ = NativeMethods.DwmSetWindowAttribute(handle, NativeMethods.DWMWA_BORDER_COLOR, ref colorRef, sizeof(int));
             }
         }
         catch
@@ -352,13 +381,20 @@ internal static class FluentUi
             _box = box;
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
             BackColor = palette.WindowBg;
+            SyncBoxColors();
             _box.GotFocus += (_, _) => { _focused = true; Invalidate(); };
             _box.LostFocus += (_, _) => { _focused = false; Invalidate(); };
             _box.EnabledChanged += (_, _) =>
             {
-                _box.BackColor = _box.Enabled ? _palette.ControlBg : _palette.CardBg;
+                SyncBoxColors();
                 Invalidate();
             };
+        }
+
+        private void SyncBoxColors()
+        {
+            _box.BackColor = _box.Enabled ? _palette.ControlBg : _palette.CardBg;
+            _box.ForeColor = _box.Enabled ? _palette.TextPrimary : _palette.TextSecondary;
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -367,8 +403,6 @@ internal static class FluentUi
             g.SmoothingMode = SmoothingMode.AntiAlias;
             var rect = new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f);
             Color fill = _box.Enabled ? _palette.ControlBg : _palette.CardBg;
-            _box.BackColor = fill;
-            _box.ForeColor = _box.Enabled ? _palette.TextPrimary : _palette.TextSecondary;
             using GraphicsPath path = CreateRoundRect(rect, 5f);
             using var brush = new SolidBrush(fill);
             using var pen = new Pen(_focused ? _palette.Accent : _palette.ControlBorder, _focused ? 1.5f : 1f);
@@ -522,20 +556,503 @@ internal sealed class FluentChipButton : Control
     }
 }
 
+internal sealed class FluentBufferedPanel : Panel
+{
+    public FluentBufferedPanel()
+    {
+        DoubleBuffered = true;
+        SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
+    }
+}
+
+internal static class FluentVerticalLayoutHelper
+{
+    public static int ResolveWidth(Control container, int proposedWidth, int targetWidth = 0)
+    {
+        if (proposedWidth > 40 && proposedWidth < int.MaxValue / 2)
+        {
+            return proposedWidth;
+        }
+
+        if (container.Dock == DockStyle.Top &&
+            container.Parent is Control parent &&
+            parent.ClientSize.Width > 40)
+        {
+            return Math.Max(40, parent.ClientSize.Width - parent.Padding.Horizontal - container.Margin.Horizontal);
+        }
+
+        if (targetWidth > 40)
+        {
+            return targetWidth;
+        }
+
+        if (container.Width > 40)
+        {
+            return container.Width;
+        }
+
+        if (container.Parent is Control p && p.ClientSize.Width > 40)
+        {
+            return Math.Max(40, p.ClientSize.Width - p.Padding.Horizontal - container.Margin.Horizontal);
+        }
+
+        return Math.Max(340, container.MinimumSize.Width);
+    }
+
+    public static int MeasureChildHeight(Control child, int childWidth)
+    {
+        if (child is Label lbl && lbl.AutoSize)
+        {
+            if (lbl.MaximumSize.Width != childWidth || lbl.MaximumSize.Height != 0)
+            {
+                lbl.MaximumSize = new Size(childWidth, 0);
+            }
+
+            return lbl.GetPreferredSize(new Size(childWidth, 0)).Height;
+        }
+
+        if (child.AutoSize)
+        {
+            return child.GetPreferredSize(new Size(childWidth, 0)).Height;
+        }
+
+        return child.Height;
+    }
+
+    public static Size Measure(Control container, Size proposedSize, int targetWidth = 0)
+    {
+        int width = ResolveWidth(container, proposedSize.Width, targetWidth);
+        int innerWidth = Math.Max(40, width - container.Padding.Horizontal);
+        int y = container.Padding.Top;
+
+        foreach (Control child in container.Controls)
+        {
+            if (!child.Visible)
+            {
+                continue;
+            }
+
+            int childWidth = Math.Max(20, innerWidth - child.Margin.Horizontal);
+            int childHeight = MeasureChildHeight(child, childWidth);
+            y += child.Margin.Top + childHeight + child.Margin.Bottom;
+        }
+
+        return new Size(width, y + container.Padding.Bottom);
+    }
+
+    public static int Arrange(Control container, int targetWidth = 0)
+    {
+        int width = container.ClientSize.Width > 40
+            ? container.ClientSize.Width
+            : ResolveWidth(container, 0, targetWidth);
+        int innerWidth = Math.Max(40, width - container.Padding.Horizontal);
+        int xBase = container.Padding.Left;
+        int y = container.Padding.Top;
+
+        foreach (Control child in container.Controls)
+        {
+            if (!child.Visible)
+            {
+                continue;
+            }
+
+            int childWidth = Math.Max(20, innerWidth - child.Margin.Horizontal);
+            int childHeight = MeasureChildHeight(child, childWidth);
+            int x = xBase + child.Margin.Left;
+            y += child.Margin.Top;
+
+            if (child is Label lbl && lbl.AutoSize)
+            {
+                if (lbl.Location.X != x || lbl.Location.Y != y)
+                {
+                    lbl.Location = new Point(x, y);
+                }
+            }
+            else if (child.Bounds.X != x || child.Bounds.Y != y || child.Bounds.Width != childWidth || child.Bounds.Height != childHeight)
+            {
+                child.SetBounds(x, y, childWidth, childHeight);
+            }
+
+            int settledHeight = child.AutoSize ? child.Height : childHeight;
+            y += settledHeight + child.Margin.Bottom;
+        }
+
+        return y + container.Padding.Bottom;
+    }
+
+    public static void ResolveAutoSizeBounds(
+        Control container,
+        ref int targetWidth,
+        ref int width,
+        ref int height,
+        BoundsSpecified specified)
+    {
+        if ((specified & BoundsSpecified.Width) != BoundsSpecified.None && width > 40)
+        {
+            targetWidth = width;
+        }
+
+        if (container.AutoSize)
+        {
+            int effectiveWidth = targetWidth > 40 ? targetWidth : ResolveWidth(container, 0);
+            Size pref = container.GetPreferredSize(new Size(effectiveWidth, 0));
+            if ((specified & BoundsSpecified.Width) == BoundsSpecified.None && container.Dock == DockStyle.None)
+            {
+                width = pref.Width;
+            }
+
+            height = pref.Height;
+        }
+    }
+}
+
+internal sealed class FluentVerticalStack : Panel
+{
+    private int _targetWidth;
+
+    public FluentVerticalStack()
+    {
+        DoubleBuffered = true;
+        SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
+        AutoSize = true;
+        AutoSizeMode = AutoSizeMode.GrowAndShrink;
+    }
+
+    public override Size GetPreferredSize(Size proposedSize) =>
+        FluentVerticalLayoutHelper.Measure(this, proposedSize, _targetWidth);
+
+    protected override void SetBoundsCore(int x, int y, int width, int height, BoundsSpecified specified)
+    {
+        FluentVerticalLayoutHelper.ResolveAutoSizeBounds(this, ref _targetWidth, ref width, ref height, specified);
+        base.SetBoundsCore(x, y, width, height, specified);
+    }
+
+    protected override void OnLayout(LayoutEventArgs levent)
+    {
+        if (IsDisposed || Disposing)
+        {
+            return;
+        }
+
+        int finalHeight = FluentVerticalLayoutHelper.Arrange(this, _targetWidth);
+        if (AutoSize && (Width <= 0 || Height != finalHeight))
+        {
+            int w = Width > 0 ? Width : FluentVerticalLayoutHelper.ResolveWidth(this, 0, _targetWidth);
+            SetBounds(Location.X, Location.Y, w, finalHeight, BoundsSpecified.Size);
+        }
+    }
+}
+
+internal sealed class FluentSettingRowPanel : Panel
+{
+    private readonly Control? _rightControl;
+    private readonly Control? _bottomControl;
+    private int _targetWidth;
+
+    public Label TitleLabel { get; }
+    public Label? SubtitleLabel { get; }
+
+    public FluentSettingRowPanel(
+        FluentPalette palette,
+        string title,
+        string subtitle,
+        Font titleFont,
+        Font descFont,
+        Control? rightControl = null,
+        Control? bottomControl = null)
+    {
+        DoubleBuffered = true;
+        SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
+        AutoSize = true;
+        AutoSizeMode = AutoSizeMode.GrowAndShrink;
+        BackColor = palette.CardBg;
+        Margin = new Padding(0, 2, 0, 2);
+
+        TitleLabel = new Label
+        {
+            Text = title,
+            Font = titleFont,
+            ForeColor = palette.TextPrimary,
+            UseMnemonic = false,
+            AutoSize = true,
+            Margin = new Padding(0)
+        };
+        Controls.Add(TitleLabel);
+
+        if (!string.IsNullOrWhiteSpace(subtitle))
+        {
+            SubtitleLabel = new Label
+            {
+                Text = subtitle,
+                Font = descFont,
+                ForeColor = palette.TextSecondary,
+                UseMnemonic = false,
+                AutoSize = true,
+                Margin = new Padding(0)
+            };
+            Controls.Add(SubtitleLabel);
+        }
+
+        _rightControl = rightControl;
+        if (_rightControl is not null)
+        {
+            Controls.Add(_rightControl);
+        }
+
+        _bottomControl = bottomControl;
+        if (_bottomControl is not null)
+        {
+            Controls.Add(_bottomControl);
+        }
+    }
+
+    public override Size GetPreferredSize(Size proposedSize) =>
+        ComputeOrApplyLayout(FluentVerticalLayoutHelper.ResolveWidth(this, proposedSize.Width, _targetWidth), apply: false);
+
+    protected override void SetBoundsCore(int x, int y, int width, int height, BoundsSpecified specified)
+    {
+        FluentVerticalLayoutHelper.ResolveAutoSizeBounds(this, ref _targetWidth, ref width, ref height, specified);
+        base.SetBoundsCore(x, y, width, height, specified);
+    }
+
+    protected override void OnLayout(LayoutEventArgs levent)
+    {
+        if (IsDisposed || Disposing)
+        {
+            return;
+        }
+
+        int width = ClientSize.Width > 40 ? ClientSize.Width : FluentVerticalLayoutHelper.ResolveWidth(this, 0, _targetWidth);
+        Size needed = ComputeOrApplyLayout(width, apply: true);
+        if (AutoSize && Height != needed.Height)
+        {
+            SetBounds(Location.X, Location.Y, Width, needed.Height, BoundsSpecified.Height);
+        }
+    }
+
+    private Size ComputeOrApplyLayout(int width, bool apply)
+    {
+        Size rightSize = Size.Empty;
+        int rightReserve = 0;
+        if (_rightControl is { Visible: true } rc)
+        {
+            if (rc.AutoSize && apply)
+            {
+                rc.PerformLayout();
+            }
+
+            rightSize = rc.AutoSize ? rc.GetPreferredSize(Size.Empty) : rc.Size;
+            rightReserve = rightSize.Width + rc.Margin.Horizontal + 10;
+        }
+
+        int textWidth = Math.Max(140, width - rightReserve);
+        if (TitleLabel.MaximumSize.Width != textWidth || TitleLabel.MaximumSize.Height != 0)
+        {
+            TitleLabel.MaximumSize = new Size(textWidth, 0);
+        }
+
+        Size titleSize = TitleLabel.GetPreferredSize(new Size(textWidth, 0));
+        int textHeight = 1 + titleSize.Height + 1;
+
+        Size subSize = Size.Empty;
+        if (SubtitleLabel is { Visible: true } sub)
+        {
+            if (sub.MaximumSize.Width != textWidth || sub.MaximumSize.Height != 0)
+            {
+                sub.MaximumSize = new Size(textWidth, 0);
+            }
+
+            subSize = sub.GetPreferredSize(new Size(textWidth, 0));
+        }
+
+        int totalTextHeight = textHeight + (SubtitleLabel is { Visible: true } ? subSize.Height + 2 : 0);
+        int rightTotalHeight = _rightControl is { Visible: true } r ? r.Margin.Vertical + rightSize.Height : 0;
+        int row0Height = Math.Max(totalTextHeight, rightTotalHeight);
+
+        if (apply)
+        {
+            int titleTop = totalTextHeight < row0Height ? (row0Height - totalTextHeight) / 2 + 1 : 1;
+            if (TitleLabel.Location.X != 0 || TitleLabel.Location.Y != titleTop)
+            {
+                TitleLabel.Location = new Point(0, titleTop);
+            }
+
+            if (SubtitleLabel is { Visible: true } subLbl)
+            {
+                int subTop = titleTop + titleSize.Height + 1;
+                if (subLbl.Location.X != 0 || subLbl.Location.Y != subTop)
+                {
+                    subLbl.Location = new Point(0, subTop);
+                }
+            }
+
+            if (_rightControl is { Visible: true } rCtrl)
+            {
+                int rx = Math.Max(textWidth + 8, width - rightSize.Width - rCtrl.Margin.Right);
+                int ry = Math.Max(rCtrl.Margin.Top, (row0Height - rightSize.Height) / 2);
+                if (rCtrl.Bounds.X != rx || rCtrl.Bounds.Y != ry || rCtrl.Bounds.Width != rightSize.Width || rCtrl.Bounds.Height != rightSize.Height)
+                {
+                    rCtrl.SetBounds(rx, ry, rightSize.Width, rightSize.Height);
+                }
+            }
+        }
+
+        int totalHeight = row0Height;
+        if (_bottomControl is { Visible: true } bc)
+        {
+            int bw = Math.Max(40, width - bc.Margin.Horizontal);
+            int bh = bc.AutoSize ? bc.GetPreferredSize(new Size(bw, 0)).Height : bc.Height;
+            int by = row0Height + bc.Margin.Top;
+            if (apply)
+            {
+                int bx = bc.Margin.Left;
+                if (bc.Bounds.X != bx || bc.Bounds.Y != by || bc.Bounds.Width != bw || bc.Bounds.Height != bh)
+                {
+                    bc.SetBounds(bx, by, bw, bh);
+                }
+            }
+
+            totalHeight = by + bh + bc.Margin.Bottom;
+        }
+
+        return new Size(width, totalHeight);
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+        if (disposing)
+        {
+            TitleLabel.Dispose();
+            SubtitleLabel?.Dispose();
+        }
+    }
+}
+
+internal sealed class FluentSideBySidePanel : Panel
+{
+    private readonly Control _left;
+    private readonly Control _right;
+    private readonly int _gap;
+    private int _targetWidth;
+
+    public FluentSideBySidePanel(Control left, Control right, Color backColor, int gap = 14)
+    {
+        _left = left;
+        _right = right;
+        _gap = gap;
+        DoubleBuffered = true;
+        SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
+        AutoSize = true;
+        AutoSizeMode = AutoSizeMode.GrowAndShrink;
+        BackColor = backColor;
+        Controls.Add(_left);
+        Controls.Add(_right);
+    }
+
+    public override Size GetPreferredSize(Size proposedSize) =>
+        ComputeOrApplyLayout(FluentVerticalLayoutHelper.ResolveWidth(this, proposedSize.Width, _targetWidth), apply: false);
+
+    protected override void SetBoundsCore(int x, int y, int width, int height, BoundsSpecified specified)
+    {
+        FluentVerticalLayoutHelper.ResolveAutoSizeBounds(this, ref _targetWidth, ref width, ref height, specified);
+        base.SetBoundsCore(x, y, width, height, specified);
+    }
+
+    protected override void OnLayout(LayoutEventArgs levent)
+    {
+        if (IsDisposed || Disposing)
+        {
+            return;
+        }
+
+        int width = ClientSize.Width > 40 ? ClientSize.Width : FluentVerticalLayoutHelper.ResolveWidth(this, 0, _targetWidth);
+        Size needed = ComputeOrApplyLayout(width, apply: true);
+        if (AutoSize && Height != needed.Height)
+        {
+            SetBounds(Location.X, Location.Y, Width, needed.Height, BoundsSpecified.Height);
+        }
+    }
+
+    private Size ComputeOrApplyLayout(int width, bool apply)
+    {
+        Size rightSize = _right.AutoSize ? _right.GetPreferredSize(Size.Empty) : _right.Size;
+        int leftWidth = Math.Max(120, width - rightSize.Width - _gap);
+        int leftHeight = FluentVerticalLayoutHelper.MeasureChildHeight(_left, leftWidth);
+
+        if (apply)
+        {
+            if (_left.Bounds.X != 0 || _left.Bounds.Y != 0 || _left.Bounds.Width != leftWidth || _left.Bounds.Height != leftHeight)
+            {
+                _left.SetBounds(0, 0, leftWidth, leftHeight);
+            }
+
+            int settledLeftHeight = _left.AutoSize ? _left.Height : leftHeight;
+            leftHeight = settledLeftHeight;
+
+            int rx = Math.Max(leftWidth + _gap, width - rightSize.Width);
+            if (_right.Bounds.X != rx || _right.Bounds.Y != 0 || _right.Bounds.Width != rightSize.Width || _right.Bounds.Height != rightSize.Height)
+            {
+                _right.SetBounds(rx, 0, rightSize.Width, rightSize.Height);
+            }
+        }
+
+        return new Size(width, Math.Max(leftHeight, rightSize.Height));
+    }
+}
+
 internal sealed class FluentCard : Panel
 {
     private readonly FluentPalette _palette;
+    private int _targetWidth;
 
     protected override Size DefaultSize => new(200, 32);
 
     public FluentCard(FluentPalette palette, Padding? padding = null, Padding? margin = null)
     {
         _palette = palette;
+        DoubleBuffered = true;
         SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
         AutoSizeMode = AutoSizeMode.GrowAndShrink;
         BackColor = palette.WindowBg;
         Padding = padding ?? new Padding(16, 10, 16, 10);
         Margin = margin ?? new Padding(0, 0, 0, 10);
+    }
+
+    public override Size GetPreferredSize(Size proposedSize) =>
+        AutoSize
+            ? FluentVerticalLayoutHelper.Measure(this, proposedSize, _targetWidth)
+            : base.GetPreferredSize(proposedSize);
+
+    protected override void SetBoundsCore(int x, int y, int width, int height, BoundsSpecified specified)
+    {
+        if (AutoSize)
+        {
+            FluentVerticalLayoutHelper.ResolveAutoSizeBounds(this, ref _targetWidth, ref width, ref height, specified);
+        }
+
+        base.SetBoundsCore(x, y, width, height, specified);
+    }
+
+    protected override void OnLayout(LayoutEventArgs levent)
+    {
+        if (!AutoSize)
+        {
+            base.OnLayout(levent);
+            return;
+        }
+
+        if (IsDisposed || Disposing)
+        {
+            return;
+        }
+
+        int finalHeight = FluentVerticalLayoutHelper.Arrange(this, _targetWidth);
+        if (Width <= 0 || Height != finalHeight)
+        {
+            int w = Width > 0 ? Width : FluentVerticalLayoutHelper.ResolveWidth(this, 0, _targetWidth);
+            SetBounds(Location.X, Location.Y, w, finalHeight, BoundsSpecified.Size);
+        }
     }
 
     protected override void OnPaint(PaintEventArgs e)
@@ -1109,13 +1626,14 @@ internal sealed class WrappingFlowPanel : FlowLayoutPanel
 
     public override Size GetPreferredSize(Size proposedSize)
     {
-        // TableLayoutPanel measures AutoSize children with narrow proposed widths during Size.Empty passes,
-        // which would falsely reserve stacked multi-row height. Prefer the actual laid-out width when known.
-        int availableWidth = Width > 32
-            ? Width
-            : (Parent is Control p && p.ClientSize.Width > 32
-                ? Math.Max(32, p.ClientSize.Width - p.Padding.Horizontal - Margin.Horizontal)
-                : (proposedSize.Width > 32 && proposedSize.Width < int.MaxValue / 2 ? proposedSize.Width : 0));
+        // Prefer the top-down proposed width when provided so wrapping rows resolve in one pass cleanly.
+        int availableWidth = proposedSize.Width > 32 && proposedSize.Width < int.MaxValue / 2
+            ? proposedSize.Width
+            : (Width > 32
+                ? Width
+                : (Parent is Control p && p.ClientSize.Width > 32
+                    ? Math.Max(32, p.ClientSize.Width - p.Padding.Horizontal - Margin.Horizontal)
+                    : 0));
 
         if (availableWidth <= 32)
         {
@@ -1133,14 +1651,6 @@ internal sealed class WrappingFlowPanel : FlowLayoutPanel
         {
             _lastWidth = Width;
             parent.PerformLayout();
-            if (parent.Parent is Control card && !card.IsDisposed)
-            {
-                card.PerformLayout();
-                if (card.Parent is Control page && !page.IsDisposed)
-                {
-                    page.PerformLayout();
-                }
-            }
         }
     }
 }
@@ -1168,6 +1678,12 @@ internal sealed class FluentMenuRenderer : ToolStripProfessionalRenderer
 
     protected override void OnRenderToolStripBorder(ToolStripRenderEventArgs e)
     {
+        if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
+        {
+            // Windows 11 DWMWA_BORDER_COLOR renders a continuous rounded outline without clipping corners.
+            return;
+        }
+
         using var pen = new Pen(Palette.CardBorder, 1f);
         e.Graphics.DrawRectangle(pen, 0, 0, e.ToolStrip.Width - 1, e.ToolStrip.Height - 1);
     }
@@ -1187,7 +1703,7 @@ internal sealed class FluentMenuRenderer : ToolStripProfessionalRenderer
         Graphics g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
         int availWidth = e.ToolStrip is not null ? Math.Min(e.Item.Width, e.ToolStrip.ClientSize.Width) : e.Item.Width;
-        var rect = new RectangleF(4f, 1.5f, Math.Max(4f, availWidth - 8f), Math.Max(4f, e.Item.Height - 3f));
+        var rect = new RectangleF(5f, 1.5f, Math.Max(4f, availWidth - 10f), Math.Max(4f, e.Item.Height - 3f));
         using GraphicsPath path = FluentUi.CreateRoundRect(rect, 5f);
         Color hoverBg = Palette.IsDark ? Palette.ControlHover : Palette.NavHover;
         Color pressedBg = Palette.IsDark ? Palette.ControlBorder : Palette.NavSelected;
@@ -1198,11 +1714,12 @@ internal sealed class FluentMenuRenderer : ToolStripProfessionalRenderer
     protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
     {
         Color fg = e.Item.Enabled ? Palette.TextPrimary : Palette.TextSecondary;
+        var textRect = new Rectangle(e.TextRectangle.X, 1, e.TextRectangle.Width, e.Item.Height);
         TextRenderer.DrawText(
             e.Graphics,
             e.Text,
             e.TextFont,
-            e.TextRectangle,
+            textRect,
             fg,
             TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix);
     }
@@ -1213,8 +1730,8 @@ internal sealed class FluentMenuRenderer : ToolStripProfessionalRenderer
         g.SmoothingMode = SmoothingMode.AntiAlias;
 
         const float size = 15f;
-        float x = Math.Max(9f, e.ImageRectangle.X + (e.ImageRectangle.Width - size) / 2f);
-        float y = e.ImageRectangle.Y + (e.ImageRectangle.Height - size) / 2f;
+        float x = Math.Max(10f, e.ImageRectangle.X + (e.ImageRectangle.Width - size) / 2f);
+        float y = (e.Item.Height - size) / 2f;
         var badge = new RectangleF(x, y, size, size);
 
         using GraphicsPath badgePath = FluentUi.CreateRoundRect(badge, 4f);
@@ -1240,8 +1757,12 @@ internal sealed class FluentMenuRenderer : ToolStripProfessionalRenderer
     protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e)
     {
         int y = e.Item.Height / 2;
+        int sepLeft = e.Item.Bounds.X;
+        int toolWidth = e.ToolStrip?.ClientSize.Width ?? e.Item.Width;
+        int x1 = Math.Max(0, 10 - sepLeft);
+        int x2 = Math.Max(x1 + 4, toolWidth - 10 - sepLeft);
         using var pen = new Pen(Palette.Divider, 1f);
-        e.Graphics.DrawLine(pen, 10, y, Math.Max(10, e.Item.Width - 10), y);
+        e.Graphics.DrawLine(pen, x1, y, x2, y);
     }
 
     protected override void OnRenderArrow(ToolStripArrowRenderEventArgs e)

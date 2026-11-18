@@ -14,6 +14,7 @@ internal static unsafe class NativeMethods
     public const int WS_EX_NOREDIRECTIONBITMAP = 0x00200000;
     public const int WS_EX_NOACTIVATE = 0x08000000;
 
+    public const int WM_SETREDRAW = 0x000B;
     public const int WM_MOUSEACTIVATE = 0x0021;
     public const int WM_SETCURSOR = 0x0020;
     public const int WM_NCHITTEST = 0x0084;
@@ -81,6 +82,7 @@ internal static unsafe class NativeMethods
     public const int DWMWA_CLOAKED = 14;
     public const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
     public const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
+    public const int DWMWA_BORDER_COLOR = 34;
     public const int DWMWA_SYSTEMBACKDROP_TYPE = 38;
     public const int DWMWCP_ROUND = 2;
 
@@ -301,4 +303,7 @@ internal static unsafe class NativeMethods
 
     [DllImport("user32.dll")]
     public static extern uint GetGuiResources(IntPtr hProcess, uint uiFlags);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
 }
