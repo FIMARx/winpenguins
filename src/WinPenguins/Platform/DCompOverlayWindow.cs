@@ -207,74 +207,7 @@ public sealed class DCompOverlayWindow : NativeWindow, IDisposable
             return true;
         }
 
-        _currentCommands.Clear();
-        for (int i = 0; i < penguins.Count; i++)
-        {
-            Penguin p = penguins[i];
-            if (!p.Active)
-            {
-                continue;
-            }
-
-            Rectangle worldRect = p.Bounds;
-            Rectangle inflated = Rectangle.Inflate(worldRect, 10, Math.Max(12, p.ShadowDistance <= 120 ? p.ShadowDistance + 10 : 12));
-            if (!inflated.IntersectsWith(_bounds))
-            {
-                continue;
-            }
-
-            byte emoteAlpha = p.Emote != PenguinEmote.None
-                ? (byte)Math.Clamp((int)Math.Round(Math.Min(1.0, p.EmoteSecondsRemaining / 0.4) * 255.0), 0, 255)
-                : (byte)0;
-
-            bool jetActive = p.SubType == PenguinSubType.Jetpack &&
-                (p.JetBoostSeconds > 0 || p.Animation is PenguinAnimationId.Climber or PenguinAnimationId.SantaClimber);
-
-            _currentCommands.Add(new DrawCommand(
-                p.Animation,
-                p.Direction,
-                p.FrameIndex,
-                (float)(p.VisualX - _bounds.X),
-                (float)(p.VisualY - _bounds.Y),
-                worldRect.Width,
-                worldRect.Height,
-                (short)Math.Clamp(Math.Round(p.VisualRotationDeg * 10f), -3600, 3600),
-                (short)Math.Clamp(Math.Round(p.VisualScaleX * 100f), 50, 200),
-                (short)Math.Clamp(Math.Round(p.VisualScaleY * 100f), 50, 200),
-                p.ShadowDistance <= 120 ? p.ShadowDistance : 999,
-                p.IsSliding,
-                p.Emote,
-                emoteAlpha,
-                p.SubType,
-                jetActive));
-        }
-
-        bool hasToysInMonitor = false;
-        if (toys != null)
-        {
-            for (int i = 0; i < toys.Count; i++)
-            {
-                if (toys[i].Active && toys[i].Bounds.IntersectsWith(_bounds))
-                {
-                    hasToysInMonitor = true;
-                    break;
-                }
-            }
-        }
-
-        bool hasSnowInMonitor = false;
-        if (snow != null)
-        {
-            ReadOnlySpan<SnowParticle> flakes = snow.Particles;
-            for (int i = 0; i < flakes.Length; i++)
-            {
-                if (flakes[i].Active && _bounds.Contains((int)flakes[i].X, (int)flakes[i].Y))
-                {
-                    hasSnowInMonitor = true;
-                    break;
-                }
-            }
-        }
+        PopulateCommands(penguins, _bounds, toys, snow, _currentCommands, out bool hasToysInMonitor, out bool hasSnowInMonitor);
 
         if (_currentCommands.Count == 0 && !hasToysInMonitor && !hasSnowInMonitor && !_hadContent && !forceRedraw)
         {
@@ -290,84 +223,17 @@ public sealed class DCompOverlayWindow : NativeWindow, IDisposable
         {
             _d2dContext.Target = _targetBitmap;
             _d2dContext.BeginDraw();
-            _d2dContext.Transform = Matrix3x2.Identity;
-            _d2dContext.Clear(new Color4(0f, 0f, 0f, 0f));
-
-            float alpha = opacity / 255f;
-
-            if (sharedBrush != null && hasToysInMonitor && toys != null)
-            {
-                RenderToys(toys, alpha, sharedBrush);
-            }
-
-            for (int i = 0; i < _currentCommands.Count; i++)
-            {
-                DrawCommand cmd = _currentCommands[i];
-                if (sharedBrush != null && cmd.ShadowDist <= 120)
-                {
-                    float factor = Math.Clamp(1f - cmd.ShadowDist / 130f, 0f, 1f);
-                    float shadowAlpha = 0.28f * factor * alpha;
-                    float rx = cmd.Width * (0.34f - 0.14f * (cmd.ShadowDist / 120f));
-                    float ry = Math.Max(2f, rx * 0.24f);
-                    float floorY = cmd.LocalY + cmd.Height + cmd.ShadowDist;
-                    sharedBrush.Color = new Color4(0f, 0f, 0f, shadowAlpha);
-                    _d2dContext.FillEllipse(new Ellipse(new Vector2(cmd.LocalX + cmd.Width * 0.5f, floorY), rx, ry), sharedBrush);
-                }
-
-                AnimationSpec spec = atlas.GetSpec(cmd.Animation);
-                (int texW, int texH) = atlas.GetTextureFrameSize(cmd.Animation);
-                RawRectF srcRect = atlas.GetFrameSourceRect(cmd.Animation, (int)cmd.Direction, cmd.FrameIndex);
-                var dstRect = new RawRectF(cmd.LocalX, cmd.LocalY, cmd.LocalX + cmd.Width, cmd.LocalY + cmd.Height);
-                bool exactIntegerScale = cmd.Width >= texW
-                    && cmd.Height >= texH
-                    && cmd.Width % texW == 0
-                    && cmd.Height % texH == 0;
-                bool classicPixelArt = texW <= 48 && texH <= 48 && spec.BaseWidth <= 48;
-                var interpolation = (classicPixelArt || exactIntegerScale)
-                    ? Vortice.Direct2D1.BitmapInterpolationMode.NearestNeighbor
-                    : Vortice.Direct2D1.BitmapInterpolationMode.Linear;
-
-                float rotDeg = cmd.RotTenths * 0.1f;
-                float sx = cmd.ScaleXPct * 0.01f;
-                float sy = cmd.ScaleYPct * 0.01f;
-                bool hasTransform = Math.Abs(rotDeg) > 0.05f || Math.Abs(sx - 1f) > 0.005f || Math.Abs(sy - 1f) > 0.005f;
-                if (hasTransform)
-                {
-                    bool spinCentered = !cmd.IsSliding && Math.Abs(rotDeg) > 18f;
-                    Vector2 anchor = spinCentered
-                        ? new Vector2(cmd.LocalX + cmd.Width * 0.5f, cmd.LocalY + cmd.Height * 0.5f)
-                        : new Vector2(cmd.LocalX + cmd.Width * 0.5f, cmd.LocalY + cmd.Height);
-                    _d2dContext.Transform = Matrix3x2.CreateScale(sx, sy, anchor) * Matrix3x2.CreateRotation(rotDeg * (MathF.PI / 180f), anchor);
-                }
-
-                _d2dContext.DrawBitmap(
-                    atlas.GetSheetBitmap(cmd.Animation),
-                    dstRect,
-                    alpha,
-                    interpolation,
-                    srcRect);
-
-                if (sharedBrush != null && cmd.SubType is not (PenguinSubType.Unspecified or PenguinSubType.Normal or PenguinSubType.Santa))
-                {
-                    RenderSubTypeAccessory(cmd, alpha, sharedBrush);
-                }
-
-                if (hasTransform)
-                {
-                    _d2dContext.Transform = Matrix3x2.Identity;
-                }
-
-                if (sharedBrush != null && cmd.Emote != PenguinEmote.None && cmd.EmoteAlpha > 4)
-                {
-                    RenderEmote(cmd, alpha * (cmd.EmoteAlpha / 255f), sharedBrush);
-                }
-            }
-
-            if (sharedBrush != null && hasSnowInMonitor && snow != null)
-            {
-                RenderSnow(snow.Particles, alpha, sharedBrush);
-            }
-
+            RenderSceneCommands(
+                _d2dContext,
+                _bounds,
+                _currentCommands,
+                hasToysInMonitor,
+                hasSnowInMonitor,
+                atlas,
+                opacity,
+                toys,
+                snow,
+                sharedBrush);
             _d2dContext.EndDraw();
             _swapChain.Present(0, PresentFlags.None);
         }
@@ -388,7 +254,177 @@ public sealed class DCompOverlayWindow : NativeWindow, IDisposable
         return true;
     }
 
-    private void RenderEmote(DrawCommand cmd, float alpha, ID2D1SolidColorBrush brush)
+    internal static void PopulateCommands(
+        IReadOnlyList<Penguin> penguins,
+        Rectangle bounds,
+        IReadOnlyList<DesktopToy>? toys,
+        SnowSystem? snow,
+        List<DrawCommand> commands,
+        out bool hasToysInMonitor,
+        out bool hasSnowInMonitor)
+    {
+        commands.Clear();
+        for (int i = 0; i < penguins.Count; i++)
+        {
+            Penguin p = penguins[i];
+            if (!p.Active)
+            {
+                continue;
+            }
+
+            Rectangle worldRect = p.Bounds;
+            Rectangle inflated = Rectangle.Inflate(worldRect, 10, Math.Max(12, p.ShadowDistance <= 120 ? p.ShadowDistance + 10 : 12));
+            if (!inflated.IntersectsWith(bounds))
+            {
+                continue;
+            }
+
+            byte emoteAlpha = p.Emote != PenguinEmote.None
+                ? (byte)Math.Clamp((int)Math.Round(Math.Min(1.0, p.EmoteSecondsRemaining / 0.4) * 255.0), 0, 255)
+                : (byte)0;
+
+            bool jetActive = p.SubType == PenguinSubType.Jetpack &&
+                (p.JetBoostSeconds > 0 || p.Animation is PenguinAnimationId.Climber or PenguinAnimationId.SantaClimber);
+
+            commands.Add(new DrawCommand(
+                p.Animation,
+                p.Direction,
+                p.FrameIndex,
+                (float)(p.VisualX - bounds.X),
+                (float)(p.VisualY - bounds.Y),
+                worldRect.Width,
+                worldRect.Height,
+                (short)Math.Clamp(Math.Round(p.VisualRotationDeg * 10f), -3600, 3600),
+                (short)Math.Clamp(Math.Round(p.VisualScaleX * 100f), 50, 200),
+                (short)Math.Clamp(Math.Round(p.VisualScaleY * 100f), 50, 200),
+                p.ShadowDistance <= 120 ? p.ShadowDistance : 999,
+                p.IsSliding,
+                p.Emote,
+                emoteAlpha,
+                p.SubType,
+                jetActive));
+        }
+
+        hasToysInMonitor = false;
+        if (toys != null)
+        {
+            for (int i = 0; i < toys.Count; i++)
+            {
+                if (toys[i].Active && toys[i].Bounds.IntersectsWith(bounds))
+                {
+                    hasToysInMonitor = true;
+                    break;
+                }
+            }
+        }
+
+        hasSnowInMonitor = false;
+        if (snow != null)
+        {
+            ReadOnlySpan<SnowParticle> flakes = snow.Particles;
+            for (int i = 0; i < flakes.Length; i++)
+            {
+                if (flakes[i].Active && bounds.Contains((int)flakes[i].X, (int)flakes[i].Y))
+                {
+                    hasSnowInMonitor = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    internal static void RenderSceneCommands(
+        ID2D1DeviceContext d2dContext,
+        Rectangle bounds,
+        IReadOnlyList<DrawCommand> commands,
+        bool hasToysInMonitor,
+        bool hasSnowInMonitor,
+        GpuSpriteAtlas atlas,
+        byte opacity,
+        IReadOnlyList<DesktopToy>? toys,
+        SnowSystem? snow,
+        ID2D1SolidColorBrush? sharedBrush)
+    {
+        d2dContext.Transform = Matrix3x2.Identity;
+        d2dContext.Clear(new Color4(0f, 0f, 0f, 0f));
+
+        float alpha = opacity / 255f;
+
+        if (sharedBrush != null && hasToysInMonitor && toys != null)
+        {
+            RenderToys(d2dContext, bounds, toys, alpha, sharedBrush);
+        }
+
+        for (int i = 0; i < commands.Count; i++)
+        {
+            DrawCommand cmd = commands[i];
+            if (sharedBrush != null && cmd.ShadowDist <= 120)
+            {
+                float factor = Math.Clamp(1f - cmd.ShadowDist / 130f, 0f, 1f);
+                float shadowAlpha = 0.28f * factor * alpha;
+                float rx = cmd.Width * (0.34f - 0.14f * (cmd.ShadowDist / 120f));
+                float ry = Math.Max(2f, rx * 0.24f);
+                float floorY = cmd.LocalY + cmd.Height + cmd.ShadowDist;
+                sharedBrush.Color = new Color4(0f, 0f, 0f, shadowAlpha);
+                d2dContext.FillEllipse(new Ellipse(new Vector2(cmd.LocalX + cmd.Width * 0.5f, floorY), rx, ry), sharedBrush);
+            }
+
+            AnimationSpec spec = atlas.GetSpec(cmd.Animation);
+            (int texW, int texH) = atlas.GetTextureFrameSize(cmd.Animation);
+            RawRectF srcRect = atlas.GetFrameSourceRect(cmd.Animation, (int)cmd.Direction, cmd.FrameIndex);
+            var dstRect = new RawRectF(cmd.LocalX, cmd.LocalY, cmd.LocalX + cmd.Width, cmd.LocalY + cmd.Height);
+            bool exactIntegerScale = cmd.Width >= texW
+                && cmd.Height >= texH
+                && cmd.Width % texW == 0
+                && cmd.Height % texH == 0;
+            bool classicPixelArt = texW <= 48 && texH <= 48 && spec.BaseWidth <= 48;
+            var interpolation = (classicPixelArt || exactIntegerScale)
+                ? Vortice.Direct2D1.BitmapInterpolationMode.NearestNeighbor
+                : Vortice.Direct2D1.BitmapInterpolationMode.Linear;
+
+            float rotDeg = cmd.RotTenths * 0.1f;
+            float sx = cmd.ScaleXPct * 0.01f;
+            float sy = cmd.ScaleYPct * 0.01f;
+            bool hasTransform = Math.Abs(rotDeg) > 0.05f || Math.Abs(sx - 1f) > 0.005f || Math.Abs(sy - 1f) > 0.005f;
+            if (hasTransform)
+            {
+                bool spinCentered = !cmd.IsSliding && Math.Abs(rotDeg) > 18f;
+                Vector2 anchor = spinCentered
+                    ? new Vector2(cmd.LocalX + cmd.Width * 0.5f, cmd.LocalY + cmd.Height * 0.5f)
+                    : new Vector2(cmd.LocalX + cmd.Width * 0.5f, cmd.LocalY + cmd.Height);
+                d2dContext.Transform = Matrix3x2.CreateScale(sx, sy, anchor) * Matrix3x2.CreateRotation(rotDeg * (MathF.PI / 180f), anchor);
+            }
+
+            d2dContext.DrawBitmap(
+                atlas.GetSheetBitmap(cmd.Animation),
+                dstRect,
+                alpha,
+                interpolation,
+                srcRect);
+
+            if (sharedBrush != null && cmd.SubType is not (PenguinSubType.Unspecified or PenguinSubType.Normal or PenguinSubType.Santa))
+            {
+                RenderSubTypeAccessory(d2dContext, cmd, alpha, sharedBrush);
+            }
+
+            if (hasTransform)
+            {
+                d2dContext.Transform = Matrix3x2.Identity;
+            }
+
+            if (sharedBrush != null && cmd.Emote != PenguinEmote.None && cmd.EmoteAlpha > 4)
+            {
+                RenderEmote(d2dContext, cmd, alpha * (cmd.EmoteAlpha / 255f), sharedBrush);
+            }
+        }
+
+        if (sharedBrush != null && hasSnowInMonitor && snow != null)
+        {
+            RenderSnow(d2dContext, bounds, snow.Particles, alpha, sharedBrush);
+        }
+    }
+
+    private static void RenderEmote(ID2D1DeviceContext d2dContext, DrawCommand cmd, float alpha, ID2D1SolidColorBrush brush)
     {
         bool isClimbing = cmd.Animation is PenguinAnimationId.Climber or PenguinAnimationId.SantaClimber;
         float cx = isClimbing
@@ -400,47 +436,47 @@ public sealed class DCompOverlayWindow : NativeWindow, IDisposable
         {
             case PenguinEmote.Heart:
                 brush.Color = new Color4(1.0f, 0.34f, 0.52f, alpha);
-                _d2dContext.FillEllipse(new Ellipse(new Vector2(cx - 2.3f, topY), 2.6f, 2.6f), brush);
-                _d2dContext.FillEllipse(new Ellipse(new Vector2(cx + 2.3f, topY), 2.6f, 2.6f), brush);
-                _d2dContext.Transform = Matrix3x2.CreateRotation(MathF.PI * 0.25f, new Vector2(cx, topY + 1.8f));
-                _d2dContext.FillRectangle(new RawRectF(cx - 2.7f, topY - 0.9f, cx + 2.7f, topY + 4.5f), brush);
-                _d2dContext.Transform = Matrix3x2.Identity;
+                d2dContext.FillEllipse(new Ellipse(new Vector2(cx - 2.3f, topY), 2.6f, 2.6f), brush);
+                d2dContext.FillEllipse(new Ellipse(new Vector2(cx + 2.3f, topY), 2.6f, 2.6f), brush);
+                d2dContext.Transform = Matrix3x2.CreateRotation(MathF.PI * 0.25f, new Vector2(cx, topY + 1.8f));
+                d2dContext.FillRectangle(new RawRectF(cx - 2.7f, topY - 0.9f, cx + 2.7f, topY + 4.5f), brush);
+                d2dContext.Transform = Matrix3x2.Identity;
                 break;
 
             case PenguinEmote.Music:
                 brush.Color = new Color4(0.32f, 0.85f, 1.0f, alpha);
-                _d2dContext.FillEllipse(new Ellipse(new Vector2(cx - 2.0f, topY + 3.5f), 2.8f, 2.1f), brush);
-                _d2dContext.DrawLine(new Vector2(cx + 0.4f, topY + 3.5f), new Vector2(cx + 0.4f, topY - 3.5f), brush, 1.6f);
-                _d2dContext.DrawLine(new Vector2(cx + 0.4f, topY - 3.5f), new Vector2(cx + 4.5f, topY - 1.8f), brush, 1.8f);
+                d2dContext.FillEllipse(new Ellipse(new Vector2(cx - 2.0f, topY + 3.5f), 2.8f, 2.1f), brush);
+                d2dContext.DrawLine(new Vector2(cx + 0.4f, topY + 3.5f), new Vector2(cx + 0.4f, topY - 3.5f), brush, 1.6f);
+                d2dContext.DrawLine(new Vector2(cx + 0.4f, topY - 3.5f), new Vector2(cx + 4.5f, topY - 1.8f), brush, 1.8f);
                 break;
 
             case PenguinEmote.Alert:
                 brush.Color = new Color4(1.0f, 0.78f, 0.18f, alpha);
-                _d2dContext.FillRoundedRectangle(new RoundedRectangle
+                d2dContext.FillRoundedRectangle(new RoundedRectangle
                 {
                     Rect = new RawRectF(cx - 1.3f, topY - 4.0f, cx + 1.3f, topY + 2.2f),
                     RadiusX = 1.2f,
                     RadiusY = 1.2f
                 }, brush);
-                _d2dContext.FillEllipse(new Ellipse(new Vector2(cx, topY + 4.8f), 1.4f, 1.4f), brush);
+                d2dContext.FillEllipse(new Ellipse(new Vector2(cx, topY + 4.8f), 1.4f, 1.4f), brush);
                 break;
 
             case PenguinEmote.Sleep:
                 brush.Color = new Color4(0.72f, 0.78f, 1.0f, alpha);
-                DrawTinyZ(cx - 2.5f, topY + 1.5f, 4.5f, brush);
-                DrawTinyZ(cx + 3.0f, topY - 4.0f, 5.5f, brush);
+                DrawTinyZ(d2dContext, cx - 2.5f, topY + 1.5f, 4.5f, brush);
+                DrawTinyZ(d2dContext, cx + 3.0f, topY - 4.0f, 5.5f, brush);
                 break;
         }
     }
 
-    private void DrawTinyZ(float x, float y, float size, ID2D1SolidColorBrush brush)
+    private static void DrawTinyZ(ID2D1DeviceContext d2dContext, float x, float y, float size, ID2D1SolidColorBrush brush)
     {
-        _d2dContext.DrawLine(new Vector2(x, y), new Vector2(x + size, y), brush, 1.4f);
-        _d2dContext.DrawLine(new Vector2(x + size, y), new Vector2(x, y + size), brush, 1.4f);
-        _d2dContext.DrawLine(new Vector2(x, y + size), new Vector2(x + size, y + size), brush, 1.4f);
+        d2dContext.DrawLine(new Vector2(x, y), new Vector2(x + size, y), brush, 1.4f);
+        d2dContext.DrawLine(new Vector2(x + size, y), new Vector2(x, y + size), brush, 1.4f);
+        d2dContext.DrawLine(new Vector2(x, y + size), new Vector2(x + size, y + size), brush, 1.4f);
     }
 
-    private void RenderSubTypeAccessory(DrawCommand cmd, float alpha, ID2D1SolidColorBrush brush)
+    private static void RenderSubTypeAccessory(ID2D1DeviceContext d2dContext, DrawCommand cmd, float alpha, ID2D1SolidColorBrush brush)
     {
         if (cmd.Animation is PenguinAnimationId.Explosion or PenguinAnimationId.Bomber)
         {
@@ -458,7 +494,7 @@ public sealed class DCompOverlayWindow : NativeWindow, IDisposable
         bool facingForward = isClimbing || cmd.Animation is PenguinAnimationId.Walker or PenguinAnimationId.SantaWalker;
         bool hideHat = cmd.Animation == PenguinAnimationId.Floater;
 
-        Matrix3x2 savedTransform = _d2dContext.Transform;
+        Matrix3x2 savedTransform = d2dContext.Transform;
         bool hasClimbTransform = TryCreateClimbAccessoryTransform(
             cmd.Animation,
             cmd.Direction,
@@ -468,47 +504,46 @@ public sealed class DCompOverlayWindow : NativeWindow, IDisposable
             out Matrix3x2 climbTransform);
         if (hasClimbTransform)
         {
-            _d2dContext.Transform = climbTransform * savedTransform;
+            d2dContext.Transform = climbTransform * savedTransform;
         }
 
         try
         {
-
             switch (cmd.SubType)
             {
                 case PenguinSubType.King when !hideHat:
                     brush.Color = new Color4(1.0f, 0.80f, 0.14f, alpha);
-                    _d2dContext.FillRoundedRectangle(new RoundedRectangle
+                    d2dContext.FillRoundedRectangle(new RoundedRectangle
                     {
                         Rect = new RawRectF(cx - w * 0.18f, ly + h * 0.10f, cx + w * 0.18f, ly + h * 0.20f),
                         RadiusX = 1.2f,
                         RadiusY = 1.2f
                     }, brush);
-                    _d2dContext.FillRectangle(new RawRectF(cx - w * 0.16f, ly + h * 0.02f, cx - w * 0.09f, ly + h * 0.12f), brush);
-                    _d2dContext.FillRectangle(new RawRectF(cx - w * 0.04f, ly + h * 0.00f, cx + w * 0.04f, ly + h * 0.12f), brush);
-                    _d2dContext.FillRectangle(new RawRectF(cx + w * 0.09f, ly + h * 0.02f, cx + w * 0.16f, ly + h * 0.12f), brush);
+                    d2dContext.FillRectangle(new RawRectF(cx - w * 0.16f, ly + h * 0.02f, cx - w * 0.09f, ly + h * 0.12f), brush);
+                    d2dContext.FillRectangle(new RawRectF(cx - w * 0.04f, ly + h * 0.00f, cx + w * 0.04f, ly + h * 0.12f), brush);
+                    d2dContext.FillRectangle(new RawRectF(cx + w * 0.09f, ly + h * 0.02f, cx + w * 0.16f, ly + h * 0.12f), brush);
                     brush.Color = new Color4(0.96f, 0.22f, 0.34f, alpha);
-                    _d2dContext.FillEllipse(new Ellipse(new Vector2(cx, ly + h * 0.15f), Math.Max(1.3f, w * 0.036f), Math.Max(1.3f, h * 0.036f)), brush);
+                    d2dContext.FillEllipse(new Ellipse(new Vector2(cx, ly + h * 0.15f), Math.Max(1.3f, w * 0.036f), Math.Max(1.3f, h * 0.036f)), brush);
                     break;
 
                 case PenguinSubType.Chef when !hideHat:
                     brush.Color = new Color4(0.84f, 0.88f, 0.94f, alpha);
-                    _d2dContext.FillRoundedRectangle(new RoundedRectangle
+                    d2dContext.FillRoundedRectangle(new RoundedRectangle
                     {
                         Rect = new RawRectF(cx - w * 0.17f, ly + h * 0.11f, cx + w * 0.17f, ly + h * 0.19f),
                         RadiusX = 1.2f,
                         RadiusY = 1.2f
                     }, brush);
                     brush.Color = new Color4(0.99f, 0.99f, 1.0f, alpha);
-                    _d2dContext.FillEllipse(new Ellipse(new Vector2(cx - w * 0.11f, ly + h * 0.07f), w * 0.10f, h * 0.09f), brush);
-                    _d2dContext.FillEllipse(new Ellipse(new Vector2(cx + w * 0.11f, ly + h * 0.07f), w * 0.10f, h * 0.09f), brush);
-                    _d2dContext.FillEllipse(new Ellipse(new Vector2(cx, ly + h * 0.03f), w * 0.12f, h * 0.10f), brush);
+                    d2dContext.FillEllipse(new Ellipse(new Vector2(cx - w * 0.11f, ly + h * 0.07f), w * 0.10f, h * 0.09f), brush);
+                    d2dContext.FillEllipse(new Ellipse(new Vector2(cx + w * 0.11f, ly + h * 0.07f), w * 0.10f, h * 0.09f), brush);
+                    d2dContext.FillEllipse(new Ellipse(new Vector2(cx, ly + h * 0.03f), w * 0.12f, h * 0.10f), brush);
                     break;
 
                 case PenguinSubType.DJ:
                     float eyeShift = facingForward ? dirSign * w * 0.08f : 0f;
                     brush.Color = new Color4(0.06f, 0.08f, 0.12f, 0.95f * alpha);
-                    _d2dContext.FillRoundedRectangle(new RoundedRectangle
+                    d2dContext.FillRoundedRectangle(new RoundedRectangle
                     {
                         Rect = new RawRectF(cx + eyeShift - w * 0.15f, ly + h * 0.27f, cx + eyeShift + w * 0.15f, ly + h * 0.35f),
                         RadiusX = 1.5f,
@@ -518,10 +553,10 @@ public sealed class DCompOverlayWindow : NativeWindow, IDisposable
                     {
                         float earX = cx - dirSign * w * 0.13f;
                         brush.Color = new Color4(0.18f, 0.86f, 1.0f, alpha);
-                        _d2dContext.DrawLine(new Vector2(cx - w * 0.15f, ly + h * 0.18f), new Vector2(cx + w * 0.15f, ly + h * 0.18f), brush, Math.Max(1.6f, w * 0.055f));
-                        _d2dContext.FillEllipse(new Ellipse(new Vector2(earX, ly + h * 0.30f), w * 0.08f, h * 0.09f), brush);
+                        d2dContext.DrawLine(new Vector2(cx - w * 0.15f, ly + h * 0.18f), new Vector2(cx + w * 0.15f, ly + h * 0.18f), brush, Math.Max(1.6f, w * 0.055f));
+                        d2dContext.FillEllipse(new Ellipse(new Vector2(earX, ly + h * 0.30f), w * 0.08f, h * 0.09f), brush);
                         brush.Color = new Color4(1.0f, 0.28f, 0.72f, alpha);
-                        _d2dContext.FillEllipse(new Ellipse(new Vector2(earX, ly + h * 0.30f), w * 0.04f, h * 0.045f), brush);
+                        d2dContext.FillEllipse(new Ellipse(new Vector2(earX, ly + h * 0.30f), w * 0.04f, h * 0.045f), brush);
                     }
                     break;
 
@@ -531,7 +566,7 @@ public sealed class DCompOverlayWindow : NativeWindow, IDisposable
                     float packTop = ly + h * 0.44f;
                     float packBottom = ly + h * 0.72f;
                     brush.Color = new Color4(0.45f, 0.52f, 0.64f, alpha);
-                    _d2dContext.FillRoundedRectangle(new RoundedRectangle
+                    d2dContext.FillRoundedRectangle(new RoundedRectangle
                     {
                         Rect = new RawRectF(packX, packTop, packX + packW, packBottom),
                         RadiusX = 2f,
@@ -541,36 +576,36 @@ public sealed class DCompOverlayWindow : NativeWindow, IDisposable
                     {
                         float jx = packX + packW * 0.5f;
                         brush.Color = new Color4(1.0f, 0.48f, 0.10f, 0.92f * alpha);
-                        _d2dContext.FillEllipse(new Ellipse(new Vector2(jx, packBottom + h * 0.10f), w * 0.08f, h * 0.12f), brush);
+                        d2dContext.FillEllipse(new Ellipse(new Vector2(jx, packBottom + h * 0.10f), w * 0.08f, h * 0.12f), brush);
                         brush.Color = new Color4(0.42f, 0.92f, 1.0f, alpha);
-                        _d2dContext.FillEllipse(new Ellipse(new Vector2(jx, packBottom + h * 0.06f), w * 0.045f, h * 0.07f), brush);
+                        d2dContext.FillEllipse(new Ellipse(new Vector2(jx, packBottom + h * 0.06f), w * 0.045f, h * 0.07f), brush);
                     }
                     break;
 
                 case PenguinSubType.Baby:
                     brush.Color = new Color4(0.32f, 0.86f, 0.94f, alpha);
-                    _d2dContext.FillRoundedRectangle(new RoundedRectangle
+                    d2dContext.FillRoundedRectangle(new RoundedRectangle
                     {
                         Rect = new RawRectF(cx - w * 0.18f, ly + h * 0.48f, cx + w * 0.18f, ly + h * 0.56f),
                         RadiusX = 1.5f,
                         RadiusY = 1.5f
                     }, brush);
                     float tailX = cx - dirSign * w * 0.16f;
-                    _d2dContext.DrawLine(new Vector2(tailX, ly + h * 0.52f), new Vector2(tailX - dirSign * w * 0.10f, ly + h * 0.62f), brush, Math.Max(1.6f, w * 0.07f));
+                    d2dContext.DrawLine(new Vector2(tailX, ly + h * 0.52f), new Vector2(tailX - dirSign * w * 0.10f, ly + h * 0.62f), brush, Math.Max(1.6f, w * 0.07f));
                     break;
 
                 case PenguinSubType.Sleepy when !hideHat:
                     brush.Color = new Color4(0.38f, 0.44f, 0.84f, alpha);
                     float capTipX = cx - dirSign * w * 0.22f;
-                    _d2dContext.FillRoundedRectangle(new RoundedRectangle
+                    d2dContext.FillRoundedRectangle(new RoundedRectangle
                     {
                         Rect = new RawRectF(cx - w * 0.17f, ly + h * 0.09f, cx + w * 0.17f, ly + h * 0.20f),
                         RadiusX = 2.5f,
                         RadiusY = 2.5f
                     }, brush);
-                    _d2dContext.DrawLine(new Vector2(cx, ly + h * 0.12f), new Vector2(capTipX, ly + h * 0.24f), brush, Math.Max(2.2f, w * 0.08f));
+                    d2dContext.DrawLine(new Vector2(cx, ly + h * 0.12f), new Vector2(capTipX, ly + h * 0.24f), brush, Math.Max(2.2f, w * 0.08f));
                     brush.Color = new Color4(1.0f, 0.95f, 0.82f, alpha);
-                    _d2dContext.FillEllipse(new Ellipse(new Vector2(capTipX, ly + h * 0.25f), Math.Max(1.6f, w * 0.06f), Math.Max(1.6f, h * 0.06f)), brush);
+                    d2dContext.FillEllipse(new Ellipse(new Vector2(capTipX, ly + h * 0.25f), Math.Max(1.6f, w * 0.06f), Math.Max(1.6f, h * 0.06f)), brush);
                     break;
             }
         }
@@ -578,7 +613,7 @@ public sealed class DCompOverlayWindow : NativeWindow, IDisposable
         {
             if (hasClimbTransform)
             {
-                _d2dContext.Transform = savedTransform;
+                d2dContext.Transform = savedTransform;
             }
         }
     }
@@ -605,18 +640,18 @@ public sealed class DCompOverlayWindow : NativeWindow, IDisposable
         return true;
     }
 
-    private void RenderToys(IReadOnlyList<DesktopToy> toys, float alpha, ID2D1SolidColorBrush brush)
+    private static void RenderToys(ID2D1DeviceContext d2dContext, Rectangle bounds, IReadOnlyList<DesktopToy> toys, float alpha, ID2D1SolidColorBrush brush)
     {
         for (int i = 0; i < toys.Count; i++)
         {
             DesktopToy t = toys[i];
-            if (!t.Active || !t.Bounds.IntersectsWith(_bounds))
+            if (!t.Active || !t.Bounds.IntersectsWith(bounds))
             {
                 continue;
             }
 
-            float lx = (float)(t.X - _bounds.X);
-            float ly = (float)(t.Y - _bounds.Y);
+            float lx = (float)(t.X - bounds.X);
+            float ly = (float)(t.Y - bounds.Y);
             float w = t.Width;
             float h = t.Height;
 
@@ -626,22 +661,22 @@ public sealed class DCompOverlayWindow : NativeWindow, IDisposable
                     float bob = MathF.Sin((float)t.AgeSeconds * 4f) * (float)(1.5 * t.Scale);
                     // Tail fin
                     brush.Color = new Color4(0.95f, 0.45f, 0.10f, alpha);
-                    _d2dContext.FillEllipse(new Ellipse(new Vector2(lx + w * 0.16f, ly + h * 0.5f + bob), w * 0.16f, h * 0.34f), brush);
+                    d2dContext.FillEllipse(new Ellipse(new Vector2(lx + w * 0.16f, ly + h * 0.5f + bob), w * 0.16f, h * 0.34f), brush);
                     // Fish body
                     brush.Color = new Color4(1.0f, 0.62f, 0.14f, alpha);
-                    _d2dContext.FillEllipse(new Ellipse(new Vector2(lx + w * 0.56f, ly + h * 0.5f + bob), w * 0.40f, h * 0.42f), brush);
+                    d2dContext.FillEllipse(new Ellipse(new Vector2(lx + w * 0.56f, ly + h * 0.5f + bob), w * 0.40f, h * 0.42f), brush);
                     // Eye
                     brush.Color = new Color4(0.10f, 0.12f, 0.16f, alpha);
-                    _d2dContext.FillEllipse(new Ellipse(new Vector2(lx + w * 0.78f, ly + h * 0.42f + bob), Math.Max(1.5f, w * 0.08f), Math.Max(1.5f, w * 0.08f)), brush);
+                    d2dContext.FillEllipse(new Ellipse(new Vector2(lx + w * 0.78f, ly + h * 0.42f + bob), Math.Max(1.5f, w * 0.08f), Math.Max(1.5f, w * 0.08f)), brush);
                     break;
 
                 case ToyKind.Trampoline:
                     float squish = (float)(t.Pulse * h * 0.25);
                     brush.Color = new Color4(0.22f, 0.26f, 0.32f, alpha);
-                    _d2dContext.FillRectangle(new RawRectF(lx + w * 0.12f, ly + h * 0.45f, lx + w * 0.22f, ly + h), brush);
-                    _d2dContext.FillRectangle(new RawRectF(lx + w * 0.78f, ly + h * 0.45f, lx + w * 0.88f, ly + h), brush);
+                    d2dContext.FillRectangle(new RawRectF(lx + w * 0.12f, ly + h * 0.45f, lx + w * 0.22f, ly + h), brush);
+                    d2dContext.FillRectangle(new RawRectF(lx + w * 0.78f, ly + h * 0.45f, lx + w * 0.88f, ly + h), brush);
                     brush.Color = new Color4(0.18f, 0.72f, 0.98f, alpha);
-                    _d2dContext.FillRoundedRectangle(new RoundedRectangle
+                    d2dContext.FillRoundedRectangle(new RoundedRectangle
                     {
                         Rect = new RawRectF(lx, ly + squish, lx + w, ly + h * 0.55f + squish),
                         RadiusX = Math.Max(2f, h * 0.22f),
@@ -660,18 +695,18 @@ public sealed class DCompOverlayWindow : NativeWindow, IDisposable
                     brush.Color = isA
                         ? new Color4(0.16f, 0.65f, 1.0f, 0.26f * alpha)
                         : new Color4(1.0f, 0.52f, 0.12f, 0.26f * alpha);
-                    _d2dContext.FillEllipse(new Ellipse(center, prx, pry), brush);
+                    d2dContext.FillEllipse(new Ellipse(center, prx, pry), brush);
 
                     brush.Color = isA
                         ? new Color4(0.32f, 0.85f, 1.0f, 0.92f * alpha)
                         : new Color4(1.0f, 0.70f, 0.22f, 0.92f * alpha);
-                    _d2dContext.DrawEllipse(new Ellipse(center, prx, pry), brush, Math.Max(2f, (float)(2.4 * t.Scale)));
+                    d2dContext.DrawEllipse(new Ellipse(center, prx, pry), brush, Math.Max(2f, (float)(2.4 * t.Scale)));
                     break;
             }
         }
     }
 
-    private void RenderSnow(ReadOnlySpan<SnowParticle> flakes, float alpha, ID2D1SolidColorBrush brush)
+    private static void RenderSnow(ID2D1DeviceContext d2dContext, Rectangle bounds, ReadOnlySpan<SnowParticle> flakes, float alpha, ID2D1SolidColorBrush brush)
     {
         for (int i = 0; i < flakes.Length; i++)
         {
@@ -681,9 +716,9 @@ public sealed class DCompOverlayWindow : NativeWindow, IDisposable
                 continue;
             }
 
-            float lx = f.X - _bounds.X;
-            float ly = f.Y - _bounds.Y;
-            if (lx < -8 || ly < -8 || lx > _bounds.Width + 8 || ly > _bounds.Height + 8)
+            float lx = f.X - bounds.X;
+            float ly = f.Y - bounds.Y;
+            if (lx < -8 || ly < -8 || lx > bounds.Width + 8 || ly > bounds.Height + 8)
             {
                 continue;
             }
@@ -691,7 +726,7 @@ public sealed class DCompOverlayWindow : NativeWindow, IDisposable
             float fade = f.Settled ? Math.Clamp(f.SettledSecondsRemaining / 1.5f, 0f, 1f) * 0.72f : 0.85f;
             brush.Color = new Color4(0.95f, 0.98f, 1.0f, fade * alpha);
             float r = f.Size * 0.5f;
-            _d2dContext.FillEllipse(new Ellipse(new Vector2(lx, ly), r, f.Settled ? r * 0.55f : r), brush);
+            d2dContext.FillEllipse(new Ellipse(new Vector2(lx, ly), r, f.Settled ? r * 0.55f : r), brush);
         }
     }
 
@@ -874,7 +909,7 @@ public sealed class DCompOverlayWindow : NativeWindow, IDisposable
         _swapChain.Dispose();
     }
 
-    private readonly record struct DrawCommand(
+    internal readonly record struct DrawCommand(
         PenguinAnimationId Animation,
         FacingDirection Direction,
         int FrameIndex,

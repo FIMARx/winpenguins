@@ -1,3 +1,8 @@
+using System.Drawing;
+using System.Numerics;
+using System.Runtime.InteropServices;
+using Vortice;
+using Vortice.DCommon;
 using Vortice.Direct2D1;
 using Vortice.Direct3D;
 using Vortice.Direct3D11;
@@ -292,6 +297,74 @@ public sealed class OverlayHost : IDisposable
             {
                 _windows[i].RenderFrame(penguins, _gpuAtlas, opacity, forceRedraw: true, toys, snow, _sharedBrush);
             }
+        }
+    }
+
+    internal byte[] CaptureTestSceneBgra(
+        int width,
+        int height,
+        IReadOnlyList<Penguin> penguins,
+        byte opacity = 255,
+        IReadOnlyList<DesktopToy>? toys = null,
+        SnowSystem? snow = null)
+    {
+        var bounds = new Rectangle(0, 0, width, height);
+        var commands = new List<DCompOverlayWindow.DrawCommand>();
+        DCompOverlayWindow.PopulateCommands(penguins, bounds, toys, snow, commands, out bool hasToys, out bool hasSnow);
+
+        var targetProps = new BitmapProperties1(
+            new PixelFormat(Format.B8G8R8A8_UNorm, Vortice.DCommon.AlphaMode.Premultiplied),
+            96f,
+            96f,
+            BitmapOptions.Target | BitmapOptions.CannotDraw);
+        var readProps = new BitmapProperties1(
+            new PixelFormat(Format.B8G8R8A8_UNorm, Vortice.DCommon.AlphaMode.Premultiplied),
+            96f,
+            96f,
+            BitmapOptions.CpuRead | BitmapOptions.CannotDraw);
+
+        using ID2D1Bitmap1 gpuTarget = _d2dContext.CreateBitmap(new SizeI(width, height), IntPtr.Zero, 0, targetProps);
+        using ID2D1Bitmap1 cpuBitmap = _d2dContext.CreateBitmap(new SizeI(width, height), IntPtr.Zero, 0, readProps);
+
+        _d2dContext.Target = gpuTarget;
+        try
+        {
+            _d2dContext.BeginDraw();
+            DCompOverlayWindow.RenderSceneCommands(
+                _d2dContext,
+                bounds,
+                commands,
+                hasToys,
+                hasSnow,
+                _gpuAtlas,
+                opacity,
+                toys,
+                snow,
+                _sharedBrush);
+            _d2dContext.EndDraw();
+        }
+        finally
+        {
+            _d2dContext.Transform = Matrix3x2.Identity;
+            _d2dContext.Target = null;
+        }
+
+        cpuBitmap.CopyFromBitmap(gpuTarget);
+        MappedRectangle mapped = cpuBitmap.Map(MapOptions.Read);
+        try
+        {
+            int rowBytes = width * 4;
+            var pixels = new byte[height * rowBytes];
+            for (int y = 0; y < height; y++)
+            {
+                nint rowPtr = (nint)mapped.Bits + checked((nint)((long)y * mapped.Pitch));
+                Marshal.Copy(rowPtr, pixels, y * rowBytes, rowBytes);
+            }
+            return pixels;
+        }
+        finally
+        {
+            cpuBitmap.Unmap();
         }
     }
 

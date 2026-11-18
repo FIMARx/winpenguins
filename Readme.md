@@ -51,9 +51,14 @@ dotnet test WinPenguins.slnx -c Release
 # Run from source
 dotnet run --project src/WinPenguins/WinPenguins.csproj -c Release
 
+# Run full verification suite (formatting, strict analyzers, UI audit, fuzzers, D2D pixels, handle leaks & coverage)
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify.ps1 -Full
+
 # Publish standalone single-file WinPenguins.exe to .\publish\
 ./publish.ps1
 ```
+
+See [docs/TESTING-AND-DEBUGGING.md](docs/TESTING-AND-DEBUGGING.md) for details on the multi-layer verification & runtime diagnostics pipeline.
 
 ## Custom Themes (`theme.json`)
 

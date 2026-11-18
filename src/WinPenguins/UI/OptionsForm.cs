@@ -263,7 +263,7 @@ public sealed class OptionsForm : Form
         brandTextPanel.Controls.Add(brandTitleLbl, 0, 0);
         var brandSubLbl = new Label
         {
-            Text = "v2.1 · Windows 11",
+            Text = "v2.1.1 · Windows 11",
             Font = _rowDescFont,
             ForeColor = _palette.TextSecondary,
             AutoSize = true,

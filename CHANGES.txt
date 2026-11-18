@@ -1,3 +1,12 @@
+2.1.1 (Stability, Visual Polish & Multi-Layer Verification)
+  - Fixed climbing Penguin Crew accessories (Chef hat, King crown, DJ headphones/shades, Jetpack, Baby scarf, Sleepy nightcap) and emotes to follow left/right wall climber head orientation
+  - Fixed Options dialog startup latency (eliminated 4x redundant theme loads and unsuspended nested TableLayoutPanel cascades: ~13.4s -> <1s)
+  - Fixed responsive wrapping of Mood Presets, Crew role chips, Quick Toybox buttons, sidebar margins, and row descriptions at minimum window size (800x540)
+  - Fixed pinned PortalA/B monitor-disconnect reclamping, mixed-DPI Auto -> 1x scale resets on secondary displays, and isolated multi-frame GIF flip row generation
+  - Fixed GDI Font/Bitmap and Process.Start handle cleanup across OptionsForm and AboutForm, plus added COM PreserveSig consistency on WASAPI enumeration
+  - Added runtime DiagnosticsReporter (%LocalAppData%\WinPenguins\diagnostics.jsonl) with deduplicated exception, frame-stall & GPU recovery logging and a "Copy Diagnostics" button in About
+  - Added DigiKaveri-inspired verification system (scripts/verify.ps1 -Quick/-Full, .githooks/pre-commit, strict IDisposable/Meziantou analyzers, Roslyn AST & asset contract guards, CsCheck property fuzzers, WinForms UI Layout Auditor & Crawler, Windows GDI/USER handle-leak tests, Coverlet >= 75% core coverage gate, and Direct2D offscreen pixel & context-menu verification tests)
+
 2.1 (Next-Level Personality, Toys, SmoothHD & Ambient Polish)
   - Added 240 Hz Direct2D Matrix3x2 visual rotation, tumble spin, and landing/hop squash-and-stretch springs
   - Added soft Direct2D ground-aware contact ellipses beneath airborne and grounded penguins

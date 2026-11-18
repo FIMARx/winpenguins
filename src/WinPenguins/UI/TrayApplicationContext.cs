@@ -753,22 +753,14 @@ public sealed class TrayApplicationContext : ApplicationContext
             return;
         }
 
-        _overlayContextMenu?.Dispose();
-        _overlayContextMenu = new ContextMenuStrip();
-
         DesktopToy? toyHit = _simulation.HitTestToy(screenX, screenY);
         if (toyHit is not null)
         {
-            _overlayContextMenu.Items.Add(new ToolStripMenuItem("Remove This Toy", null, (_, _) =>
-            {
-                _simulation.RemoveToy(toyHit);
-                StepAndRender(forceRedraw: true, deltaMs: 0);
-            }));
-            _overlayContextMenu.Items.Add(new ToolStripMenuItem("Clear All Toys", null, (_, _) =>
-            {
-                _simulation.Toys.Clear();
-                StepAndRender(forceRedraw: true, deltaMs: 0);
-            }));
+            _overlayContextMenu?.Dispose();
+            _overlayContextMenu = BuildOverlayToyMenu(
+                toyHit,
+                _simulation,
+                () => StepAndRender(forceRedraw: true, deltaMs: 0));
             _overlayContextMenu.Show(screenX, screenY);
             return;
         }
@@ -780,15 +772,58 @@ public sealed class TrayApplicationContext : ApplicationContext
         }
 
         double scale = _world.GetScaleAt(screenX, screenY, _activeScale);
-        _overlayContextMenu.Items.Add(new ToolStripMenuItem("Feed Fish Here", null, (_, _) =>
+        _overlayContextMenu?.Dispose();
+        _overlayContextMenu = BuildOverlayPenguinMenu(
+            hit,
+            screenX,
+            screenY,
+            scale,
+            _simulation,
+            _world,
+            () => StepAndRender(forceRedraw: true, deltaMs: 0),
+            ShowOptions);
+        _overlayContextMenu.Show(screenX, screenY);
+    }
+
+    internal static ContextMenuStrip BuildOverlayToyMenu(
+        DesktopToy toyHit,
+        PenguinSimulation simulation,
+        Action redraw)
+    {
+        var menu = new ContextMenuStrip();
+        menu.Items.Add(new ToolStripMenuItem("Remove This Toy", null, (_, _) =>
         {
-            _simulation.Toys.SpawnToy(ToyKind.Fish, screenX - 12, Math.Max(0, screenY - 24), scale);
-            StepAndRender(forceRedraw: true, deltaMs: 0);
+            simulation.RemoveToy(toyHit);
+            redraw();
         }));
-        _overlayContextMenu.Items.Add(new ToolStripMenuItem("Drop Trampoline Here", null, (_, _) =>
+        menu.Items.Add(new ToolStripMenuItem("Clear All Toys", null, (_, _) =>
         {
-            _simulation.Toys.SpawnToy(ToyKind.Trampoline, screenX - 22, Math.Max(0, screenY - 12), scale);
-            StepAndRender(forceRedraw: true, deltaMs: 0);
+            simulation.Toys.Clear();
+            redraw();
+        }));
+        return menu;
+    }
+
+    internal static ContextMenuStrip BuildOverlayPenguinMenu(
+        Penguin hit,
+        int screenX,
+        int screenY,
+        double scale,
+        PenguinSimulation simulation,
+        CollisionWorld world,
+        Action redraw,
+        Action openOptions)
+    {
+        var menu = new ContextMenuStrip();
+        menu.Items.Add(new ToolStripMenuItem("Feed Fish Here", null, (_, _) =>
+        {
+            simulation.Toys.SpawnToy(ToyKind.Fish, screenX - 12, Math.Max(0, screenY - 24), scale);
+            redraw();
+        }));
+        menu.Items.Add(new ToolStripMenuItem("Drop Trampoline Here", null, (_, _) =>
+        {
+            simulation.Toys.SpawnToy(ToyKind.Trampoline, screenX - 22, Math.Max(0, screenY - 12), scale);
+            redraw();
         }));
 
         var roleMenu = new ToolStripMenuItem("Change Role");
@@ -807,23 +842,23 @@ public sealed class TrayApplicationContext : ApplicationContext
             PenguinSubType r = role;
             var item = new ToolStripMenuItem(label, null, (_, _) =>
             {
-                hit.SetSubType(r, _world);
+                hit.SetSubType(r, world);
                 hit.TriggerSquash(0.84f, 1.24f);
                 hit.TriggerEmote(r == PenguinSubType.Sleepy ? PenguinEmote.Sleep : PenguinEmote.Heart, 1.4);
-                StepAndRender(forceRedraw: true, deltaMs: 0);
+                redraw();
             })
             {
                 Checked = hit.SubType == role
             };
             roleMenu.DropDownItems.Add(item);
         }
-        _overlayContextMenu.Items.Add(roleMenu);
 
-        _overlayContextMenu.Items.Add(new ToolStripMenuItem("Explode This Penguin", null, (_, _) => hit.TriggerBomber()));
-        _overlayContextMenu.Items.Add(new ToolStripSeparator());
-        _overlayContextMenu.Items.Add(new ToolStripMenuItem("Scatter All", null, (_, _) => _simulation.ScatterAll()));
-        _overlayContextMenu.Items.Add(new ToolStripMenuItem("Options...", null, (_, _) => ShowOptions()));
-        _overlayContextMenu.Show(screenX, screenY);
+        menu.Items.Add(roleMenu);
+        menu.Items.Add(new ToolStripMenuItem("Explode This Penguin", null, (_, _) => hit.TriggerBomber()));
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(new ToolStripMenuItem("Scatter All", null, (_, _) => simulation.ScatterAll()));
+        menu.Items.Add(new ToolStripMenuItem("Options...", null, (_, _) => openOptions()));
+        return menu;
     }
 
     private void OnOverlayCaptureLost()
