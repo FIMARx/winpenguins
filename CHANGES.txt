@@ -1,3 +1,10 @@
+2.1.2 (Fluent Context Menus, Flicker Fix & Release Provenance)
+  - Upgraded the tray context menu and right-click penguin/toy menus to Windows 11 Fluent styling (DWM rounded corners, Dark/Light theme sync, rounded hover pills, sleek accent checkmarks, and smooth chevrons)
+  - Fixed menu/dialog flashing and click-stealing by keeping active Options/About dialogs above the overlay while focused, suppressing overlay hit-testing under open menus/dialogs, stabilizing fullscreen hide state across menu focus transitions, and triple-buffering DirectComposition swapchains
+  - Fixed Mood Presets, Quick Toybox, and Crew role cards reserving vertical blank space in OptionsForm (WrappingFlowPanel preferred-width sizing)
+  - Fixed startup NullReferenceException when launching while Focus Assist / Presentation Mode or Battery Saver is active before FramePacer initializes
+  - Added SHA256SUMS.txt checksum generation, build provenance links, and Windows SmartScreen guidance to GitHub Releases & README
+
 2.1.1 (Stability, Visual Polish & Multi-Layer Verification)
   - Fixed climbing Penguin Crew accessories (Chef hat, King crown, DJ headphones/shades, Jetpack, Baby scarf, Sleepy nightcap) and emotes to follow left/right wall climber head orientation
   - Fixed Options dialog startup latency (eliminated 4x redundant theme loads and unsuspended nested TableLayoutPanel cascades: ~13.4s -> <1s)

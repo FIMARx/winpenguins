@@ -574,6 +574,13 @@ public sealed class TrayApplicationContext : ApplicationContext
             }
         }
 
+        if ((layerChange || monitorChange) &&
+            _activeDialog is { Visible: true, IsDisposed: false } dlg &&
+            NativeMethods.GetForegroundWindow() == dlg.Handle)
+        {
+            dlg.TopMost = _settings.LayerMode == OverlayLayerMode.AboveWindows;
+        }
+
         double newScale = ResolveEffectiveScale(_settings);
         if (Math.Abs(newScale - _activeScale) > 0.001 || (scaleChange && _settings.ScaleMode != SpriteScaleMode.Auto))
         {
