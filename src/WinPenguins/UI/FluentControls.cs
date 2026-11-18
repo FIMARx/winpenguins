@@ -43,6 +43,8 @@ internal sealed class FluentPalette
 
     public static FluentPalette DetectCurrent() => new(IsSystemDarkMode());
 
+    internal static FluentPalette CreateForTheme(bool isDark) => new(isDark);
+
     public bool RefreshFromSystem()
     {
         bool dark = IsSystemDarkMode();
@@ -135,9 +137,9 @@ internal static class FluentUi
             try
             {
                 int dark = palette.IsDark ? 1 : 0;
-                NativeMethods.DwmSetWindowAttribute(form.Handle, NativeMethods.DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, sizeof(int));
+                _ = NativeMethods.DwmSetWindowAttribute(form.Handle, NativeMethods.DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, sizeof(int));
                 int round = NativeMethods.DWMWCP_ROUND;
-                NativeMethods.DwmSetWindowAttribute(form.Handle, NativeMethods.DWMWA_WINDOW_CORNER_PREFERENCE, ref round, sizeof(int));
+                _ = NativeMethods.DwmSetWindowAttribute(form.Handle, NativeMethods.DWMWA_WINDOW_CORNER_PREFERENCE, ref round, sizeof(int));
             }
             catch
             {
@@ -160,7 +162,7 @@ internal static class FluentUi
         try
         {
             int dark = palette.IsDark ? 1 : 0;
-            NativeMethods.DwmSetWindowAttribute(form.Handle, NativeMethods.DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, sizeof(int));
+            _ = NativeMethods.DwmSetWindowAttribute(form.Handle, NativeMethods.DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, sizeof(int));
         }
         catch
         {
@@ -264,9 +266,9 @@ internal sealed class FluentComboBox : ComboBox
     protected override void OnDrawItem(DrawItemEventArgs e)
     {
         Graphics g = e.Graphics;
-        bool editBox = (e.State & DrawItemState.ComboBoxEdit) != 0;
-        bool selected = (e.State & DrawItemState.Selected) != 0 && !editBox;
-        bool disabled = (e.State & DrawItemState.Disabled) != 0 || !Enabled;
+        bool editBox = (e.State & DrawItemState.ComboBoxEdit) != DrawItemState.None;
+        bool selected = (e.State & DrawItemState.Selected) != DrawItemState.None && !editBox;
+        bool disabled = (e.State & DrawItemState.Disabled) != DrawItemState.None || !Enabled;
 
         Color bg = selected
             ? _palette.NavSelected
@@ -750,6 +752,14 @@ internal sealed class FluentButton : Button
         Cursor = Cursors.Hand;
         Font = new Font("Segoe UI Semibold", 9.25f);
         SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
+    }
+
+    public override Size GetPreferredSize(Size proposedSize)
+    {
+        Size text = TextRenderer.MeasureText(Text ?? string.Empty, Font);
+        int w = Math.Max(MinimumSize.Width, text.Width + 24);
+        int h = Math.Max(MinimumSize.Height, Math.Max(30, text.Height + 12));
+        return new Size(w, h);
     }
 
     protected override void OnMouseEnter(EventArgs e) { _hovered = true; Invalidate(); base.OnMouseEnter(e); }

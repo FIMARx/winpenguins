@@ -27,11 +27,8 @@ jobs:
       - name: Restore dependencies
         run: dotnet restore WinPenguins.slnx
 
-      - name: Build solution
-        run: dotnet build WinPenguins.slnx -c Release --no-restore
-
-      - name: Run unit tests
-        run: dotnet test WinPenguins.slnx -c Release --no-build --logger "console;verbosity=normal"
+      - name: Run full WinPenguins verification suite
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify.ps1 -Full
 
       - name: Publish standalone WinPenguins.exe
         run: dotnet publish src/WinPenguins/WinPenguins.csproj -p:PublishProfile=SingleFile -o publish

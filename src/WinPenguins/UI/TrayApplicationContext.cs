@@ -4,6 +4,7 @@ using System.Reflection;
 using Microsoft.Win32;
 using WinPenguins.Assets;
 using WinPenguins.Config;
+using WinPenguins.Diagnostics;
 using WinPenguins.Engine;
 using WinPenguins.Platform;
 
@@ -169,6 +170,20 @@ public sealed class TrayApplicationContext : ApplicationContext
     }
 
     private void StepAndRender(bool forceRedraw, double deltaMs)
+    {
+        long stepStartTimestamp = Stopwatch.GetTimestamp();
+        try
+        {
+            StepAndRenderCore(forceRedraw, deltaMs);
+        }
+        finally
+        {
+            double elapsedMs = (Stopwatch.GetTimestamp() - stepStartTimestamp) * 1000.0 / Stopwatch.Frequency;
+            DiagnosticsReporter.Default.RecordFrameTiming(elapsedMs);
+        }
+    }
+
+    private void StepAndRenderCore(bool forceRedraw, double deltaMs)
     {
         long now = Environment.TickCount64;
         if (forceRedraw || (now - _lastMonitorCheckTick) >= 500)
@@ -405,11 +420,17 @@ public sealed class TrayApplicationContext : ApplicationContext
 
         using var dlg = new OptionsForm(_appIcon, _settings, _soundService, ApplySettings, ExecuteQuickAction);
         _activeDialog = dlg;
-        if (dlg.ShowDialog() == DialogResult.OK)
+        try
         {
-            SettingsStore.Save(_settings);
+            if (dlg.ShowDialog() == DialogResult.OK)
+            {
+                SettingsStore.Save(_settings);
+            }
         }
-        _activeDialog = null;
+        finally
+        {
+            _activeDialog = null;
+        }
     }
 
     private void ExecuteQuickAction(PenguinQuickAction action)
@@ -445,8 +466,14 @@ public sealed class TrayApplicationContext : ApplicationContext
         string stats = $"Active penguins: {_simulation.Penguins.Count} · Fish eaten: {_simulation.FishEatenCount} · Trampoline bounces: {_simulation.TrampolineBouncesCount} · Portal jumps: {_simulation.PortalJumpsCount}";
         using var dlg = new AboutForm(_appIcon, stats);
         _activeDialog = dlg;
-        dlg.ShowDialog();
-        _activeDialog = null;
+        try
+        {
+            dlg.ShowDialog();
+        }
+        finally
+        {
+            _activeDialog = null;
+        }
     }
 
     private void ScheduleScreenshot()
@@ -882,7 +909,7 @@ public sealed class TrayApplicationContext : ApplicationContext
     {
         using Stream? stream = Assembly.GetExecutingAssembly()
             .GetManifestResourceStream("WinPenguins.Assets.winpenguins.ico");
-        return stream != null ? new Icon(stream) : SystemIcons.Application;
+        return stream != null ? new Icon(stream) : (Icon)SystemIcons.Application.Clone();
     }
 
     protected override void Dispose(bool disposing)

@@ -1536,7 +1536,7 @@ public sealed class NextLevelFeatureTests
         Assert.Equal(classicWalker.FrameHeight, smoothWalker.FrameHeight);
         Assert.Equal(classicWalker.TextureFrameWidth * 2, smoothWalker.TextureFrameWidth);
         Assert.Equal(classicWalker.TextureFrameHeight * 2, smoothWalker.TextureFrameHeight);
-        Assert.Contains("SmoothHD", ThemeDiscovery.ListThemes().Select(t => t.Name));
+        Assert.Contains("SmoothHD", ThemeDiscovery.ListThemes().Select(t => t.Name), StringComparer.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -1888,5 +1888,21 @@ public sealed class NextLevelFeatureTests
         world.Update([new Rectangle(0, 0, 1920, 1080)], Array.Empty<Rectangle>(), [1.0]);
         toys.Step(world, 16.0);
         Assert.True(world.IsInsideDesktop(portal.Bounds));
+    }
+
+    [Fact]
+    public void DCompOverlayWindow_ClimberAccessoryTransform_RotatesCrownPointsAwayFromClimbedWall()
+    {
+        Assert.False(DCompOverlayWindow.TryCreateClimbAccessoryTransform(PenguinAnimationId.Walker, FacingDirection.Right, 16f, 16f, 32f, out _));
+
+        // Climbing RIGHT wall: sprite head faces LEFT (-90 deg turns upright top (16, 2) onto left crown ~(2, 17)).
+        Assert.True(DCompOverlayWindow.TryCreateClimbAccessoryTransform(PenguinAnimationId.Climber, FacingDirection.Right, 16f, 16f, 32f, out var rightWallM));
+        var crownTopRightWall = System.Numerics.Vector2.Transform(new System.Numerics.Vector2(16f, 2f), rightWallM);
+        Assert.True(crownTopRightWall.X < 6f, $"Expected crown point on left side when climbing right wall, got X={crownTopRightWall.X}");
+
+        // Climbing LEFT wall: sprite head faces RIGHT (+90 deg turns upright top (16, 2) onto right crown ~(30, 17)).
+        Assert.True(DCompOverlayWindow.TryCreateClimbAccessoryTransform(PenguinAnimationId.Climber, FacingDirection.Left, 16f, 16f, 32f, out var leftWallM));
+        var crownTopLeftWall = System.Numerics.Vector2.Transform(new System.Numerics.Vector2(16f, 2f), leftWallM);
+        Assert.True(crownTopLeftWall.X > 26f, $"Expected crown point on right side when climbing left wall, got X={crownTopLeftWall.X}");
     }
 }

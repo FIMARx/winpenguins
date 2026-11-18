@@ -8,7 +8,7 @@ namespace WinPenguins.Assets;
 
 public sealed class SoundPlayerService : IDisposable
 {
-    private readonly object _sync = new();
+    private readonly Lock _sync = new();
     private SoundPlayer? _player;
     private MemoryStream? _memoryStream;
     private string _loadedKey = string.Empty;
@@ -66,8 +66,6 @@ public sealed class SoundPlayerService : IDisposable
 
                 if (_player == null || !string.Equals(_loadedKey, targetKey, StringComparison.OrdinalIgnoreCase))
                 {
-                    DisposePlayerUnlocked();
-
                     byte[]? rawBytes = LoadWavBytes(useFile ? customSoundPath : null, builtInSound);
                     if (rawBytes == null)
                     {
@@ -75,6 +73,10 @@ public sealed class SoundPlayerService : IDisposable
                     }
 
                     byte[] scaledBytes = ScaleWavPcmVolume(rawBytes, volumePercent);
+                    _player?.Dispose();
+                    _player = null;
+                    _memoryStream?.Dispose();
+                    _memoryStream = null;
                     _memoryStream = new MemoryStream(scaledBytes, writable: false);
                     _player = new SoundPlayer(_memoryStream);
                     _player.Load();

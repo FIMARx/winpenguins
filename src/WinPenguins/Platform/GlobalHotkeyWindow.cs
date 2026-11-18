@@ -113,7 +113,8 @@ public static class GlobalHotkeyParser
         }
 
         if (token.Length >= 2 && (token[0] == 'F' || token[0] == 'f') &&
-            int.TryParse(token.AsSpan(1), out int fn) && fn >= 1 && fn <= 24)
+            int.TryParse(token.AsSpan(1), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out int fn) &&
+            fn >= 1 && fn <= 24)
         {
             virtualKey = (uint)(0x70 + fn - 1);
             canonicalName = $"F{fn}";

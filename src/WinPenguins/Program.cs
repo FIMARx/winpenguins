@@ -1,3 +1,4 @@
+using WinPenguins.Diagnostics;
 using WinPenguins.UI;
 
 namespace WinPenguins;
@@ -15,6 +16,7 @@ internal static class Program
             return;
         }
 
+        DiagnosticsReporter.InstallProcessHandlers();
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);

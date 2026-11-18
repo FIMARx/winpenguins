@@ -124,6 +124,50 @@ public sealed class SpriteCatalog
         return new SpriteCatalog(descriptor.Name, sheets, scale);
     }
 
+    internal static SpriteSheet LoadWalkerPreviewSheet(string themeName, double scale = 1.0, string? customRootDirectory = null)
+    {
+        AnimationSpec walkerSpec = AnimationCatalogSpecs.Get(PenguinAnimationId.Walker);
+        if (string.IsNullOrWhiteSpace(themeName) ||
+            themeName.Equals("Classic", StringComparison.OrdinalIgnoreCase))
+        {
+            return SpriteSheet.LoadFromEmbeddedMaskedBmp(walkerSpec, scale);
+        }
+
+        if (themeName.Equals("SmoothHD", StringComparison.OrdinalIgnoreCase))
+        {
+            return SpriteSheet.LoadFromEmbeddedMaskedBmp(walkerSpec, 1.0).CreateSmoothHdVariant(scale);
+        }
+
+        ThemeDescriptor? descriptor = ThemeDiscovery.ListThemes(customRootDirectory)
+            .FirstOrDefault(t => !t.IsBuiltIn && t.Name.Equals(themeName, StringComparison.OrdinalIgnoreCase));
+        if (descriptor?.FolderPath != null)
+        {
+            ThemeManifest? manifest = ThemeDiscovery.TryLoadManifest(Path.Combine(descriptor.FolderPath, "theme.json"));
+            if (manifest != null &&
+                manifest.Animations.TryGetValue(PenguinAnimationId.Walker, out ThemeAnimationEntry? entry) &&
+                !string.IsNullOrWhiteSpace(entry.Image))
+            {
+                string fullImagePath = Path.GetFullPath(Path.Combine(descriptor.FolderPath, entry.Image));
+                if (File.Exists(fullImagePath))
+                {
+                    var customSpec = new AnimationSpec(
+                        PenguinAnimationId.Walker,
+                        walkerSpec.ResourcePrefix,
+                        Math.Max(1, entry.FrameCount),
+                        Math.Clamp(entry.DirectionCount, 1, 2),
+                        Math.Max(4, entry.FrameWidth),
+                        Math.Max(4, entry.FrameHeight),
+                        entry.Cycles);
+                    return fullImagePath.EndsWith(".gif", StringComparison.OrdinalIgnoreCase)
+                        ? SpriteSheet.LoadFromGif(customSpec, fullImagePath, entry.ReverseRightRow, scale)
+                        : SpriteSheet.LoadFromPng(customSpec, fullImagePath, entry.ReverseRightRow, scale);
+                }
+            }
+        }
+
+        return SpriteSheet.LoadFromEmbeddedMaskedBmp(walkerSpec, scale);
+    }
+
     public SpriteSheet GetSheet(PenguinAnimationId id) => _sheets[id];
 
     public SpriteFrame GetFrame(Penguin penguin) =>
@@ -309,11 +353,12 @@ public sealed class SpriteCatalog
                 else if (framesElem.ValueKind == JsonValueKind.Object)
                 {
                     int count = 0;
-                    foreach (JsonProperty prop in framesElem.EnumerateObject())
+                    using JsonElement.ObjectEnumerator enumerator = framesElem.EnumerateObject();
+                    while (enumerator.MoveNext())
                     {
                         if (count == 0)
                         {
-                            ReadAsepriteFrameDims(prop.Value, out fw, out fh);
+                            ReadAsepriteFrameDims(enumerator.Current.Value, out fw, out fh);
                         }
                         count++;
                     }

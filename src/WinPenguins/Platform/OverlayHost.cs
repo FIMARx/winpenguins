@@ -6,6 +6,7 @@ using Vortice.DXGI;
 using Vortice.Mathematics;
 using WinPenguins.Assets;
 using WinPenguins.Config;
+using WinPenguins.Diagnostics;
 using WinPenguins.Engine;
 
 namespace WinPenguins.Platform;
@@ -58,13 +59,17 @@ public sealed class OverlayHost : IDisposable
         _dxgiFactory = dxgiAdapter.GetParent<IDXGIFactory2>();
 
         _d2dFactory = D2D1.D2D1CreateFactory<ID2D1Factory1>(FactoryType.SingleThreaded);
+        _d2dDevice?.Dispose();
         _d2dDevice = _d2dFactory.CreateDevice(dxgiDevice);
+        _d2dContext?.Dispose();
         _d2dContext = _d2dDevice.CreateDeviceContext(DeviceContextOptions.None);
         _d2dContext.UnitMode = UnitMode.Pixels;
         _d2dContext.SetDpi(96f, 96f);
 
         _dcompDevice = DComp.DCompositionCreateDevice<IDCompositionDevice>(dxgiDevice);
+        _sharedBrush?.Dispose();
         _sharedBrush = _d2dContext.CreateSolidColorBrush(new Color4(1f, 1f, 1f, 1f));
+        _gpuAtlas?.Dispose();
         _gpuAtlas = new GpuSpriteAtlas(_d2dContext, _spriteCatalog);
     }
 
@@ -309,10 +314,12 @@ public sealed class OverlayHost : IDisposable
                 LayerMode = _layerMode,
                 PrimaryMonitorOnly = _primaryOnly
             });
+            DiagnosticsReporter.Default.RecordAnomaly("GpuRecovery", "Recovered DXGI/Direct2D pipeline after device loss.", deduplicate: false);
             return true;
         }
-        catch
+        catch (Exception ex)
         {
+            DiagnosticsReporter.Default.RecordException("GpuRecovery", ex);
             return false;
         }
     }
@@ -417,15 +424,24 @@ public sealed class OverlayHost : IDisposable
 
     private void DisposeGpuResources()
     {
-        _gpuAtlas.Dispose();
-        _sharedBrush.Dispose();
-        _dcompDevice.Dispose();
-        _d2dContext.Dispose();
-        _d2dDevice.Dispose();
-        _d2dFactory.Dispose();
-        _dxgiFactory.Dispose();
-        _d3dContext.Dispose();
-        _d3dDevice.Dispose();
+        _gpuAtlas?.Dispose();
+        _gpuAtlas = null!;
+        _sharedBrush?.Dispose();
+        _sharedBrush = null!;
+        _dcompDevice?.Dispose();
+        _dcompDevice = null!;
+        _d2dContext?.Dispose();
+        _d2dContext = null!;
+        _d2dDevice?.Dispose();
+        _d2dDevice = null!;
+        _d2dFactory?.Dispose();
+        _d2dFactory = null!;
+        _dxgiFactory?.Dispose();
+        _dxgiFactory = null!;
+        _d3dContext?.Dispose();
+        _d3dContext = null!;
+        _d3dDevice?.Dispose();
+        _d3dDevice = null!;
     }
 
     public void Dispose()

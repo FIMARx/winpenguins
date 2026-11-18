@@ -1,0 +1,18 @@
+#!/bin/sh
+# Pre-commit gate: runs strict Release build + fast verification suite (~15s).
+# Enabled once via: git config core.hooksPath .githooks
+
+if git diff --cached --name-only | grep -qE '^(publish/|TestResults/)'; then
+  echo "pre-commit: refusing to commit generated publish/ or TestResults/ artifacts."
+  exit 1
+fi
+
+echo "pre-commit: running WinPenguins quick verification..."
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify.ps1 -Quick
+status=$?
+if [ "$status" -ne 0 ]; then
+  echo "pre-commit: verification failed. Fix errors before committing (avoid --no-verify)."
+  exit "$status"
+fi
+
+echo "pre-commit: OK"

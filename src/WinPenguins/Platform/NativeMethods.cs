@@ -74,6 +74,9 @@ internal static unsafe class NativeMethods
     public const uint WINEVENT_OUTOFCONTEXT = 0x0000;
     public const uint WINEVENT_SKIPOWNPROCESS = 0x0002;
 
+    public const uint GR_GDIOBJECTS = 0;
+    public const uint GR_USEROBJECTS = 1;
+
     public const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
     public const int DWMWA_CLOAKED = 14;
     public const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
@@ -292,4 +295,10 @@ internal static unsafe class NativeMethods
 
     [DllImport("user32.dll")]
     public static extern bool UnhookWinEvent(IntPtr hWinEventHook);
+
+    [DllImport("kernel32.dll")]
+    public static extern IntPtr GetCurrentProcess();
+
+    [DllImport("user32.dll")]
+    public static extern uint GetGuiResources(IntPtr hProcess, uint uiFlags);
 }

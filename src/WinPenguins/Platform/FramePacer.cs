@@ -99,7 +99,7 @@ public sealed class FramePacer : IDisposable
             long dueTime100Ns = -(10_000_000L / Math.Max(1, fps));
             if (NativeMethods.SetWaitableTimer(_highResTimer, ref dueTime100Ns, 0, IntPtr.Zero, IntPtr.Zero, false))
             {
-                NativeMethods.WaitForSingleObject(_highResTimer, 100);
+                _ = NativeMethods.WaitForSingleObject(_highResTimer, 100);
                 return;
             }
         }
