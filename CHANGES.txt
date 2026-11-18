@@ -1,3 +1,7 @@
+2.1.3 (Ambient Focus & Hover Flicker Hotfix)
+  - Fixed penguins vanishing or flickering across desktops and after closing menus when Presentation/Focus Pause is enabled (removed spurious Windows 11 QUNS_BUSY notification-state pausing while keeping D3D Fullscreen, Presentation Mode, and Quiet Time detection)
+  - Added hover release cooldown in OverlayHost to eliminate 240 Hz WS_EX_TRANSPARENT extended-style thrashing on grazing cursors and perched penguins
+
 2.1.2 (Fluent Context Menus, Flicker Fix & Release Provenance)
   - Upgraded the tray context menu and right-click penguin/toy menus to Windows 11 Fluent styling (DWM rounded corners, Dark/Light theme sync, rounded hover pills, sleek accent checkmarks, and smooth chevrons)
   - Fixed menu/dialog flashing and click-stealing by keeping active Options/About dialogs above the overlay while focused, suppressing overlay hit-testing under open menus/dialogs, stabilizing fullscreen hide state across menu focus transitions, and triple-buffering DirectComposition swapchains

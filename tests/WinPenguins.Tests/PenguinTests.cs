@@ -1606,6 +1606,12 @@ public sealed class NextLevelFeatureTests
         Assert.InRange(peak, 0f, 1f);
 
         _ = FocusAndRecordingMonitor.IsPresentationOrFocusBusy();
+        Assert.False(FocusAndRecordingMonitor.IsBusyNotificationState(1)); // QUNS_NOT_PRESENT
+        Assert.False(FocusAndRecordingMonitor.IsBusyNotificationState(2)); // QUNS_BUSY (fires on normal desktop/Explorer)
+        Assert.False(FocusAndRecordingMonitor.IsBusyNotificationState(5)); // QUNS_ACCEPTS_NOTIFICATIONS
+        Assert.True(FocusAndRecordingMonitor.IsBusyNotificationState(3));  // QUNS_RUNNING_D3D_FULL_SCREEN
+        Assert.True(FocusAndRecordingMonitor.IsBusyNotificationState(4));  // QUNS_PRESENTATION_MODE
+        Assert.True(FocusAndRecordingMonitor.IsBusyNotificationState(6));  // QUNS_QUIET_TIME
 
         var settings = new AppSettings
         {

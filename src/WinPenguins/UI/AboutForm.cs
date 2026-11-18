@@ -91,7 +91,7 @@ public sealed class AboutForm : Form
 
         titlePanel.Controls.Add(new Label
         {
-            Text = "WinPenguins 2.1.2 (Modern Windows 11 Edition)",
+            Text = "WinPenguins 2.1.3 (Modern Windows 11 Edition)",
             Font = _titleFont,
             ForeColor = palette.TextPrimary,
             UseMnemonic = false,

@@ -5,10 +5,14 @@ namespace WinPenguins.Platform;
 
 public static class FocusAndRecordingMonitor
 {
-    private const int QunsBusy = 2;
     private const int QunsRunningD3dFullScreen = 3;
     private const int QunsPresentationMode = 4;
     private const int QunsQuietTime = 6;
+
+    // Deliberately exclude QUNS_BUSY (2): Windows 11 frequently reports QUNS_BUSY on ordinary
+    // multi-monitor desktops and Explorer sessions, which would spuriously blink or hide penguins.
+    internal static bool IsBusyNotificationState(int quns) =>
+        quns is QunsRunningD3dFullScreen or QunsPresentationMode or QunsQuietTime;
 
     public static bool IsPresentationOrFocusBusy()
     {
@@ -16,7 +20,7 @@ public static class FocusAndRecordingMonitor
         {
             if (NativeMethods.SHQueryUserNotificationState(out int quns) == 0)
             {
-                return quns is QunsBusy or QunsRunningD3dFullScreen or QunsPresentationMode or QunsQuietTime;
+                return IsBusyNotificationState(quns);
             }
         }
         catch

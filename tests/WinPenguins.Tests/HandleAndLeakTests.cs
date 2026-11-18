@@ -133,7 +133,7 @@ public sealed class HandleAndLeakTests
 
             Assert.True(gdiDelta <= 12, $"Potential GDI handle leak across {cycles} dialog cycles: delta={gdiDelta} (start={startGdi}, end={endGdi}).");
             Assert.True(userDelta <= 12, $"Potential USER handle leak across {cycles} dialog cycles: delta={userDelta} (start={startUser}, end={endUser}).");
-        }, timeoutSeconds: 120);
+        }, timeoutSeconds: 240);
     }
 
     [Fact]

@@ -36,6 +36,8 @@ public sealed class OverlayHost : IDisposable
     private OverlayLayerMode _layerMode;
     private bool _primaryOnly;
     private bool _visible = true;
+    private bool _hoverActive;
+    private long _lastHoverReleaseTick;
     private bool _desktopZOrderDirty = true;
     private long _lastZOrderCheckTick;
     private long _lastRecoveryTick;
@@ -223,6 +225,26 @@ public sealed class OverlayHost : IDisposable
         }
 
         bool hit = hitTest(pt.X, pt.Y);
+        long nowTick = Environment.TickCount64;
+        if (!hit)
+        {
+            if (_hoverActive)
+            {
+                _hoverActive = false;
+                _lastHoverReleaseTick = nowTick;
+            }
+        }
+        else if (!_hoverActive && _lastHoverReleaseTick > 0 && nowTick - _lastHoverReleaseTick < 80)
+        {
+            // Cooldown after release avoids 240Hz WS_EX_TRANSPARENT style thrashing on grazing cursors.
+            hit = false;
+        }
+        else
+        {
+            _hoverActive = true;
+            _lastHoverReleaseTick = 0;
+        }
+
         for (int i = 0; i < _windows.Count; i++)
         {
             DCompOverlayWindow win = _windows[i];
