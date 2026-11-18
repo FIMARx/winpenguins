@@ -8,6 +8,10 @@ using WinPenguins.Platform;
 using WinPenguins.UI;
 using Xunit;
 
+// QueryProcessHandleCounts() reads process-wide GDI/USER handle counts across testhost.exe;
+// disabling intra-assembly parallelization prevents concurrent GDI/WinForms tests from skewing deltas.
+[assembly: CollectionBehavior(DisableTestParallelization = true)]
+
 namespace WinPenguins.Tests;
 
 [Collection("SequentialUiTests")]

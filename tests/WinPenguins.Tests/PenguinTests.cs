@@ -570,6 +570,7 @@ public sealed class PenguinSimulationTests
     }
 }
 
+[Collection("SequentialUiTests")]
 public sealed class SpriteAndOverlayTests
 {
     [Theory]
@@ -1277,6 +1278,7 @@ public sealed class SettingsTests
     }
 }
 
+[Collection("SequentialUiTests")]
 public sealed class NextLevelFeatureTests
 {
     [Fact]
