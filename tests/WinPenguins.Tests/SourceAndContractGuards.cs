@@ -190,6 +190,25 @@ public sealed class SourceAndContractGuards
         {
             Assert.Contains($"ToyKind.{toy}", toysRendererText, StringComparison.Ordinal);
         }
+
+        foreach (PenguinEmote emote in Enum.GetValues<PenguinEmote>())
+        {
+            if (emote != PenguinEmote.None)
+            {
+                Assert.Contains($"PenguinEmote.{emote}", dcompText, StringComparison.Ordinal);
+            }
+        }
+
+        foreach (PenguinTemperament temperament in Enum.GetValues<PenguinTemperament>())
+        {
+            Assert.Contains($"PenguinTemperament.{temperament}", simText, StringComparison.Ordinal);
+            Assert.False(string.IsNullOrWhiteSpace(PenguinPersonality.GetTemperamentLabel(temperament)));
+        }
+
+        foreach (PenguinQuirk quirk in Enum.GetValues<PenguinQuirk>())
+        {
+            Assert.False(string.IsNullOrWhiteSpace(PenguinPersonality.GetQuirkLabel(quirk)));
+        }
     }
 
     private static List<string> FindThreadSleepCalls(string relPath, SyntaxTree tree)

@@ -197,6 +197,14 @@ public sealed class OverlayHost : IDisposable
         }
     }
 
+    public void CancelMouseCapture()
+    {
+        for (int i = 0; i < _windows.Count; i++)
+        {
+            _windows[i].CancelMouseCapture();
+        }
+    }
+
     public void UpdateInteractiveHover(bool enabled, bool isDragging, Func<int, int, bool> hitTest)
     {
         if (!_visible || !enabled)

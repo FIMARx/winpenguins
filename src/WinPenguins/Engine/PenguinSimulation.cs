@@ -10,6 +10,7 @@ public sealed class PenguinSimulation
     private IReadOnlyDictionary<PenguinAnimationId, AnimationSpec> _specs;
     private double _scale;
     private bool _enableParachutes = true;
+    private bool _enablePersonalities = true;
     private Point? _lastCursorPos;
 
     public CollisionWorld World { get; }
@@ -119,12 +120,19 @@ public sealed class PenguinSimulation
 
     public void RemoveToy(DesktopToy toy) => Toys.Remove(toy);
 
+    public void RerollPersonality(Penguin penguin)
+    {
+        PenguinPersonality next = PenguinCharacterCatalog.AllocateUnique(_penguins, _rng, excludeId: penguin.Personality.CharacterId);
+        penguin.SetPersonality(next, resetMood: true);
+        penguin.SpeedMultiplier = Math.Clamp(next.SpeedBias, 0.72, 1.38);
+    }
+
     public void BeginGrab(Penguin penguin)
     {
         penguin.IsPerching = false;
         penguin.SlideSecondsRemaining = 0;
         penguin.BeginGrab();
-        penguin.TriggerEmote(PenguinEmote.Alert, 0.9);
+        ApplyGrabStartPersonality(penguin);
         SoundRequested?.Invoke(SoundEffectKind.Eep);
     }
 
@@ -141,10 +149,7 @@ public sealed class PenguinSimulation
     {
         if (wasClick)
         {
-            // Cute hop + quack on single click (Baby penguins bounce extra high!).
-            double hopVy = penguin.SubType == PenguinSubType.Baby ? -6.2 * penguin.Scale : -4.5 * penguin.Scale;
-            penguin.ReleaseGrab(0, hopVy);
-            penguin.TriggerSquash(0.82f, 1.24f);
+            ApplyClickPersonality(penguin);
             SoundRequested?.Invoke(SoundEffectKind.Chirp);
             return;
         }
@@ -159,6 +164,7 @@ public sealed class PenguinSimulation
         }
 
         penguin.ReleaseGrab(vx, vy);
+        ApplyThrowPersonality(penguin, vx, vy);
     }
 
     public void Step(AppSettings settings, Point? cursorScreenPos = null) =>
@@ -167,6 +173,7 @@ public sealed class PenguinSimulation
     public void Step(AppSettings settings, double deltaMs, Point? cursorScreenPos = null, float audioPeak = 0f)
     {
         _enableParachutes = settings.EnableParachutes;
+        _enablePersonalities = settings.EnablePersonalities;
         double stepUnits = Math.Clamp(deltaMs / Math.Max(1.0, settings.FrameDelayMs), 0.001, 2.0);
         double dtSec = Math.Max(0.0, deltaMs / 1000.0);
         bool autoPerMonitorDpi = settings.ScaleMode == SpriteScaleMode.Auto;
@@ -174,12 +181,14 @@ public sealed class PenguinSimulation
         Toys.Step(World, deltaMs);
         Snow.Step(World, _penguins, deltaMs, settings.EnableSnow);
 
+        double cursorStepDist = 0;
         double cursorSpeedPxPerSec = 0;
         if (cursorScreenPos.HasValue && _lastCursorPos.HasValue && dtSec > 0.0005)
         {
             double cdx = cursorScreenPos.Value.X - _lastCursorPos.Value.X;
             double cdy = cursorScreenPos.Value.Y - _lastCursorPos.Value.Y;
-            cursorSpeedPxPerSec = Math.Sqrt(cdx * cdx + cdy * cdy) / dtSec;
+            cursorStepDist = Math.Sqrt(cdx * cdx + cdy * cdy);
+            cursorSpeedPxPerSec = cursorStepDist / dtSec;
         }
         _lastCursorPos = cursorScreenPos;
 
@@ -200,6 +209,11 @@ public sealed class PenguinSimulation
 
             if (penguin.IsGrabbed)
             {
+                if (_enablePersonalities && TryEscapeGrabByPersonality(penguin, dtSec))
+                {
+                    continue;
+                }
+
                 // Keep tumbling animation dangling while grabbed.
                 var (_, _, advanceGrabFrame) = penguin.AccumulateSubStep(stepUnits);
                 if (advanceGrabFrame)
@@ -277,6 +291,15 @@ public sealed class PenguinSimulation
                 ? int.MaxValue
                 : ScaleStep(settings.SplatDistance, penguin.Scale);
 
+            if (_enablePersonalities &&
+                settings.InteractiveMouse &&
+                cursorScreenPos.HasValue &&
+                !penguin.StartingUp &&
+                !penguin.IsTerminalAnimation)
+            {
+                TryHandleCursorPetting(penguin, cursorScreenPos.Value, cursorStepDist, cursorSpeedPxPerSec, dtSec, settings);
+            }
+
             if (penguin.IsIdle)
             {
                 penguin.IdleSecondsRemaining -= deltaMs / 1000.0;
@@ -340,57 +363,88 @@ public sealed class PenguinSimulation
             {
                 ApplyCursorAvoidance(penguin, cursorScreenPos.Value);
             }
-            else if (settings.CursorPerch &&
-                settings.InteractiveMouse &&
-                !anyPerching &&
-                !penguin.StartingUp &&
-                cursorScreenPos.HasValue &&
-                cursorSpeedPxPerSec < 85.0 &&
-                penguin.Animation is PenguinAnimationId.Walker or PenguinAnimationId.SantaWalker)
+            else
             {
-                int cx = penguin.X + penguin.Width / 2;
-                int footY = penguin.Bounds.Bottom;
-                if (Math.Abs(cursorScreenPos.Value.X - cx) <= penguin.Width &&
-                    Math.Abs(cursorScreenPos.Value.Y - footY) <= penguin.Height)
+                if (_enablePersonalities &&
+                    settings.InteractiveMouse &&
+                    cursorScreenPos.HasValue &&
+                    !penguin.StartingUp)
                 {
-                    double dwellThreshold = penguin.SubType == PenguinSubType.Sleepy ? 0.65 : 1.25;
-                    penguin.PerchDwellSeconds += dtSec;
-                    if (penguin.PerchDwellSeconds >= dwellThreshold)
+                    ApplyPersonalityCursorProximity(penguin, cursorScreenPos.Value, cursorSpeedPxPerSec);
+                }
+
+                bool canPersonalityPerch = !_enablePersonalities ||
+                    (penguin.Personality.Temperament != PenguinTemperament.Grumpy &&
+                     !penguin.HoldsGrudge &&
+                     (penguin.Personality.Temperament != PenguinTemperament.Shy || penguin.Mood >= 10f));
+
+                if (settings.CursorPerch &&
+                    settings.InteractiveMouse &&
+                    canPersonalityPerch &&
+                    !anyPerching &&
+                    !penguin.StartingUp &&
+                    cursorScreenPos.HasValue &&
+                    cursorSpeedPxPerSec < 85.0 &&
+                    penguin.Animation is PenguinAnimationId.Walker or PenguinAnimationId.SantaWalker)
+                {
+                    int cx = penguin.X + penguin.Width / 2;
+                    int footY = penguin.Bounds.Bottom;
+                    if (Math.Abs(cursorScreenPos.Value.X - cx) <= penguin.Width &&
+                        Math.Abs(cursorScreenPos.Value.Y - footY) <= penguin.Height)
+                    {
+                        double dwellThreshold = penguin.SubType == PenguinSubType.Sleepy
+                            ? 0.65
+                            : (_enablePersonalities && penguin.Personality.Temperament == PenguinTemperament.Cuddly
+                                ? 0.60
+                                : (_enablePersonalities && penguin.Personality.Temperament == PenguinTemperament.Chill ? 0.85 : 1.25));
+                        penguin.PerchDwellSeconds += dtSec;
+                        if (penguin.PerchDwellSeconds >= dwellThreshold)
+                        {
+                            penguin.PerchDwellSeconds = 0;
+                            penguin.IsPerching = true;
+                            penguin.IdleSecondsRemaining = 0;
+                            penguin.SlideSecondsRemaining = 0;
+                            penguin.TriggerSquash(0.84f, 1.20f);
+                            if (penguin.SubType == PenguinSubType.Sleepy)
+                            {
+                                penguin.TriggerEmote(PenguinEmote.Sleep, 2.2);
+                            }
+                            else if (_enablePersonalities && penguin.Personality.Temperament == PenguinTemperament.Cuddly)
+                            {
+                                penguin.AdjustMood(6f);
+                                penguin.TriggerEmote(PenguinEmote.Heart, 1.6);
+                            }
+                            anyPerching = true;
+                            SoundRequested?.Invoke(SoundEffectKind.Chirp);
+                            continue;
+                        }
+                    }
+                    else
                     {
                         penguin.PerchDwellSeconds = 0;
-                        penguin.IsPerching = true;
-                        penguin.IdleSecondsRemaining = 0;
-                        penguin.SlideSecondsRemaining = 0;
-                        penguin.TriggerSquash(0.84f, 1.20f);
-                        if (penguin.SubType == PenguinSubType.Sleepy)
-                        {
-                            penguin.TriggerEmote(PenguinEmote.Sleep, 2.2);
-                        }
-                        anyPerching = true;
-                        SoundRequested?.Invoke(SoundEffectKind.Chirp);
-                        continue;
                     }
-                }
-                else
-                {
-                    penguin.PerchDwellSeconds = 0;
                 }
             }
 
-            float musicThreshold = penguin.SubType == PenguinSubType.DJ ? 0.16f : 0.28f;
+            bool groovySoul = _enablePersonalities &&
+                (penguin.Personality.Quirk == PenguinQuirk.Groovy ||
+                 penguin.Personality.Temperament == PenguinTemperament.Dramatic);
+            float musicThreshold = penguin.SubType == PenguinSubType.DJ
+                ? 0.16f
+                : (groovySoul ? 0.19f : 0.28f);
             if (settings.EnableMusicDancing &&
                 audioPeak > musicThreshold &&
                 !penguin.StartingUp &&
                 penguin.BeatCooldown <= 0 &&
                 penguin.Animation is PenguinAnimationId.Walker or PenguinAnimationId.SantaWalker)
             {
-                bool isDj = penguin.SubType == PenguinSubType.DJ;
-                penguin.BeatCooldown = isDj ? 0.22 : 0.28;
+                bool eagerDancer = penguin.SubType == PenguinSubType.DJ || groovySoul;
+                penguin.BeatCooldown = eagerDancer ? 0.22 : 0.28;
                 penguin.TriggerEmote(PenguinEmote.Music, 1.1);
-                if (audioPeak > (isDj ? 0.45f : 0.70f) && _rng.Next(isDj ? 2 : 3) == 0 && !penguin.IsIdle)
+                if (audioPeak > (eagerDancer ? 0.45f : 0.70f) && _rng.Next(eagerDancer ? 2 : 3) == 0 && !penguin.IsIdle)
                 {
                     penguin.SetAnimation(PenguinAnimationId.Faller, FacingDirection.Left);
-                    penguin.SetVelocity(penguin.VelocityX * 0.4, (isDj ? -5.0 : -4.2) * penguin.Scale);
+                    penguin.SetVelocity(penguin.VelocityX * 0.4, (eagerDancer ? -5.0 : -4.2) * penguin.Scale);
                     penguin.TriggerSquash(0.84f, 1.22f);
                 }
                 else
@@ -425,6 +479,19 @@ public sealed class PenguinSimulation
                 else
                 {
                     penguin.SlideSecondsRemaining = 0;
+                }
+            }
+            if (penguin.HuffySecondsRemaining > 0)
+            {
+                penguin.HuffySecondsRemaining = Math.Max(0, penguin.HuffySecondsRemaining - dtSec);
+                if (_enablePersonalities &&
+                    penguin.Animation is PenguinAnimationId.Walker or PenguinAnimationId.SantaWalker &&
+                    !penguin.IsSliding &&
+                    !penguin.IsSeekingFish)
+                {
+                    double baseWalk = 3.2 * penguin.Scale * penguin.SpeedMultiplier;
+                    double targetSpeed = penguin.HuffySecondsRemaining > 0 ? baseWalk * 1.35 : baseWalk;
+                    penguin.VelocityX = penguin.Direction == FacingDirection.Right ? targetSpeed : -targetSpeed;
                 }
             }
 
@@ -669,6 +736,14 @@ public sealed class PenguinSimulation
                     {
                         choice = 2; // Strongly bias climbing staggered monitor borders to migrate across monitors.
                     }
+                    else if (_enablePersonalities && p.Personality.Quirk == PenguinQuirk.Climber && _rng.Next(10) < 6)
+                    {
+                        choice = 2;
+                    }
+                    else if (_enablePersonalities && p.Personality.Quirk == PenguinQuirk.Explorer && _rng.Next(10) < 4)
+                    {
+                        choice = 0;
+                    }
                     else
                     {
                         choice = _rng.Next(8);
@@ -718,16 +793,23 @@ public sealed class PenguinSimulation
                     }
                 }
                 else if (settings.EnableIdlePauses &&
-                    _rng.NextDouble() < (p.SubType == PenguinSubType.Sleepy ? 0.011 : 0.0045) * stepUnits)
+                    _rng.NextDouble() < GetIdlePauseChance(p) * stepUnits)
                 {
-                    bool sleepy = p.SubType == PenguinSubType.Sleepy;
-                    p.IdleSecondsRemaining = sleepy
-                        ? (2.2 + _rng.NextDouble() * 2.8)
+                    bool cozyNapper = p.SubType == PenguinSubType.Sleepy ||
+                        (_enablePersonalities &&
+                         (p.Personality.Temperament == PenguinTemperament.Chill || p.Personality.Quirk == PenguinQuirk.Napper));
+                    bool daydreamer = _enablePersonalities && p.Personality.Quirk == PenguinQuirk.Daydreamer;
+                    p.IdleSecondsRemaining = cozyNapper
+                        ? (2.0 + _rng.NextDouble() * 2.6)
                         : (0.45 + _rng.NextDouble() * 0.9);
                     p.ResetFrameToStanding();
-                    if (sleepy)
+                    if (cozyNapper)
                     {
                         p.TriggerEmote(PenguinEmote.Sleep, p.IdleSecondsRemaining);
+                    }
+                    else if (daydreamer && _rng.Next(2) == 0)
+                    {
+                        p.TriggerEmote(PenguinEmote.Curious, Math.Min(1.2, p.IdleSecondsRemaining));
                     }
                     else if (_rng.Next(8) == 0)
                     {
@@ -736,15 +818,22 @@ public sealed class PenguinSimulation
                 }
                 else if (settings.EnableIdlePauses &&
                     !p.IsSliding &&
-                    _rng.NextDouble() < (p.SubType == PenguinSubType.DJ ? 0.0026 : 0.0010) * stepUnits)
+                    _rng.NextDouble() < GetSlideChance(p) * stepUnits)
                 {
                     bool isDj = p.SubType == PenguinSubType.DJ;
-                    p.SlideSecondsRemaining = (isDj ? 0.95 : 0.55) + _rng.NextDouble() * 0.5;
-                    double slideSpeed = (isDj ? 6.0 : 5.4) * s * p.SpeedMultiplier;
+                    bool lovesSliding = _enablePersonalities &&
+                        (p.Personality.Quirk == PenguinQuirk.Slider ||
+                         p.Personality.Temperament is PenguinTemperament.ThrillSeeker or PenguinTemperament.Mischievous);
+                    p.SlideSecondsRemaining = (isDj || lovesSliding ? 0.90 : 0.55) + _rng.NextDouble() * 0.5;
+                    double slideSpeed = (isDj || lovesSliding ? 6.0 : 5.4) * s * p.SpeedMultiplier;
                     p.SetVelocity(p.Direction == FacingDirection.Right ? slideSpeed : -slideSpeed, 0);
                     if (isDj)
                     {
                         p.TriggerEmote(PenguinEmote.Music, p.SlideSecondsRemaining);
+                    }
+                    else if (lovesSliding)
+                    {
+                        p.TriggerEmote(PenguinEmote.Sparkle, p.SlideSecondsRemaining);
                     }
                 }
                 break;
@@ -908,22 +997,30 @@ public sealed class PenguinSimulation
         int maxSpan = Math.Max(1, mon.Width - size);
         int spawnX = mon.Left + _rng.Next(maxSpan);
         int spawnY = mon.Top;
-        double speedMult = 0.85 + (_rng.NextDouble() * 0.33);
+        PenguinPersonality identity = PenguinCharacterCatalog.AllocateUnique(_penguins, _rng);
+        double speedMult = _enablePersonalities
+            ? Math.Clamp(identity.SpeedBias * (0.95 + (_rng.NextDouble() * 0.10)), 0.72, 1.38)
+            : 0.85 + (_rng.NextDouble() * 0.33);
 
+        Penguin spawned;
         if (_enableParachutes && _rng.Next(5) == 0)
         {
             double sway = (_rng.Next(3) - 1) * 0.6 * effectiveScale;
-            var para = new Penguin(spawnX, spawnY, sway, 1.6 * effectiveScale, effectiveScale, speedMult, _specs)
+            spawned = new Penguin(spawnX, spawnY, sway, 1.6 * effectiveScale, effectiveScale, speedMult, _specs)
             {
                 IsParachuting = true
             };
-            para.SetAnimation(PenguinAnimationId.Floater, FacingDirection.Left);
-            return para;
+            spawned.SetAnimation(PenguinAnimationId.Floater, FacingDirection.Left);
+        }
+        else
+        {
+            double driftX = (_rng.Next(3) - 1) * effectiveScale;
+            double fallY = 3.0 * effectiveScale;
+            spawned = new Penguin(spawnX, spawnY, driftX, fallY, effectiveScale, speedMult, _specs);
         }
 
-        double driftX = (_rng.Next(3) - 1) * effectiveScale;
-        double fallY = 3.0 * effectiveScale;
-        return new Penguin(spawnX, spawnY, driftX, fallY, effectiveScale, speedMult, _specs);
+        spawned.SetPersonality(identity, resetMood: true);
+        return spawned;
     }
 
     private void EnsureSubType(Penguin p, AppSettings settings)
@@ -1066,9 +1163,11 @@ public sealed class PenguinSimulation
         int cy = p.Y + p.Height / 2;
 
         // Seek nearby fish treats on the same reachable floor without pinning against walls.
+        bool isFoodie = _enablePersonalities && p.Personality.Quirk == PenguinQuirk.Foodie;
+        double fishSeekRadius = isFoodie ? 500 * s : 340 * s;
         int maxFishFootDelta = Math.Max(18, (int)(20 * s));
         DesktopToy? nearestFish = p.Animation is PenguinAnimationId.Walker or PenguinAnimationId.SantaWalker && !p.IsIdle
-            ? Toys.FindNearestFish(cx, cy, 340 * s, pBounds.Bottom, maxFishFootDelta)
+            ? Toys.FindNearestFish(cx, cy, fishSeekRadius, pBounds.Bottom, maxFishFootDelta)
             : null;
 
         bool canApproachFish = false;
@@ -1093,7 +1192,7 @@ public sealed class PenguinSimulation
                         p.SetAnimation(p.Animation, want);
                     }
 
-                    double mult = p.SubType == PenguinSubType.Baby ? 1.55 : 1.35;
+                    double mult = p.SubType == PenguinSubType.Baby ? 1.55 : (isFoodie ? 1.50 : 1.35);
                     double sprint = p.IsSliding ? Math.Abs(p.VelocityX) : walkSpeed * mult;
                     p.VelocityX = want == FacingDirection.Right ? sprint : -sprint;
                     p.VelocityY = 0;
@@ -1133,6 +1232,8 @@ public sealed class PenguinSimulation
                     toy.Active = false;
                     FishEatenCount++;
                     p.IdleSecondsRemaining = 0;
+                    p.HuffySecondsRemaining = 0;
+                    p.AdjustMood(isFoodie ? 40f : 30f);
                     p.VelocityX = p.Direction == FacingDirection.Right ? walkSpeed : -walkSpeed;
                     p.TriggerSquash(0.84f, 1.24f);
                     p.TriggerEmote(PenguinEmote.Heart, 1.8);
@@ -1148,8 +1249,13 @@ public sealed class PenguinSimulation
                         p.SlideSecondsRemaining = 0;
                         p.BounceCooldown = 0.45;
                         toy.Pulse = 1.0;
+                        bool lovesBounce = _enablePersonalities &&
+                            (p.Personality.Quirk == PenguinQuirk.Acrobat ||
+                             p.Personality.Temperament == PenguinTemperament.ThrillSeeker);
                         double vx = p.Direction == FacingDirection.Right ? 2.4 * s : -2.4 * s;
-                        double jumpVy = p.SubType == PenguinSubType.Jetpack ? -13.5 * s : -11.5 * s;
+                        double jumpVy = p.SubType == PenguinSubType.Jetpack
+                            ? -13.5 * s
+                            : (lovesBounce ? -12.8 * s : -11.5 * s);
                         if (p.SubType == PenguinSubType.Jetpack)
                         {
                             p.JetBoostSeconds = 0.45;
@@ -1158,7 +1264,8 @@ public sealed class PenguinSimulation
                         p.SetVelocity(vx, jumpVy);
                         p.TumbleStartY = p.Y;
                         p.TriggerSquash(0.78f, 1.28f);
-                        p.TriggerEmote(PenguinEmote.Alert, 1.0);
+                        p.AdjustMood(lovesBounce ? 10f : 4f);
+                        p.TriggerEmote(lovesBounce ? PenguinEmote.Sparkle : PenguinEmote.Alert, 1.1);
                         SoundRequested?.Invoke(SoundEffectKind.Eep);
                         return;
                     }
@@ -1314,12 +1421,36 @@ public sealed class PenguinSimulation
                     (involvesKing || a.Direction != b.Direction) &&
                     Math.Abs((ra.X + ra.Width / 2) - (rb.X + rb.Width / 2)) < Math.Min(ra.Width, rb.Width) * 0.6)
                 {
-                    a.GreetingCooldown = 4.5;
-                    b.GreetingCooldown = 4.5;
+                    bool aGrumpy = _enablePersonalities && !involvesKing &&
+                        (a.Personality.Quirk == PenguinQuirk.Loner || a.Personality.Temperament == PenguinTemperament.Grumpy || a.HoldsGrudge);
+                    bool bGrumpy = _enablePersonalities && !involvesKing &&
+                        (b.Personality.Quirk == PenguinQuirk.Loner || b.Personality.Temperament == PenguinTemperament.Grumpy || b.HoldsGrudge);
+                    bool extraSocial = _enablePersonalities && !aGrumpy && !bGrumpy &&
+                        (a.Personality.Quirk == PenguinQuirk.Social || b.Personality.Quirk == PenguinQuirk.Social ||
+                         a.Personality.Temperament == PenguinTemperament.Cuddly || b.Personality.Temperament == PenguinTemperament.Cuddly);
+
+                    double cooldown = extraSocial ? 2.6 : 4.5;
+                    a.GreetingCooldown = cooldown;
+                    b.GreetingCooldown = cooldown;
                     a.TriggerSquash(0.88f, 1.15f);
                     b.TriggerSquash(0.88f, 1.15f);
-                    a.TriggerEmote(PenguinEmote.Heart, 1.5);
-                    b.TriggerEmote(PenguinEmote.Heart, 1.5);
+
+                    if (aGrumpy || bGrumpy)
+                    {
+                        a.TriggerEmote(aGrumpy ? PenguinEmote.Angry : PenguinEmote.Alert, 1.2);
+                        b.TriggerEmote(bGrumpy ? PenguinEmote.Angry : PenguinEmote.Alert, 1.2);
+                    }
+                    else
+                    {
+                        a.TriggerEmote(PenguinEmote.Heart, 1.5);
+                        b.TriggerEmote(PenguinEmote.Heart, 1.5);
+                        if (extraSocial)
+                        {
+                            a.AdjustMood(5f);
+                            b.AdjustMood(5f);
+                        }
+                    }
+
                     if (involvesKing)
                     {
                         if (a.SubType != PenguinSubType.King) a.IdleSecondsRemaining = Math.Max(a.IdleSecondsRemaining, 0.35);
@@ -1363,6 +1494,423 @@ public sealed class PenguinSimulation
         bottom.TriggerSquash(1.24f, 0.78f);
         SoundRequested?.Invoke(SoundEffectKind.Chirp);
         return true;
+    }
+
+    private double GetIdlePauseChance(Penguin p)
+    {
+        if (p.SubType == PenguinSubType.Sleepy)
+        {
+            return 0.011;
+        }
+
+        if (_enablePersonalities)
+        {
+            if (p.Personality.Temperament == PenguinTemperament.Chill || p.Personality.Quirk == PenguinQuirk.Napper)
+            {
+                return 0.0095;
+            }
+
+            if (p.Personality.Quirk == PenguinQuirk.Daydreamer)
+            {
+                return 0.0075;
+            }
+        }
+
+        return 0.0045;
+    }
+
+    private double GetSlideChance(Penguin p)
+    {
+        if (p.SubType == PenguinSubType.DJ)
+        {
+            return 0.0026;
+        }
+
+        if (_enablePersonalities &&
+            (p.Personality.Quirk == PenguinQuirk.Slider ||
+             p.Personality.Temperament is PenguinTemperament.ThrillSeeker or PenguinTemperament.Mischievous))
+        {
+            return 0.0024;
+        }
+
+        return 0.0010;
+    }
+
+    private void ApplyGrabStartPersonality(Penguin penguin)
+    {
+        if (!_enablePersonalities)
+        {
+            penguin.TriggerEmote(PenguinEmote.Alert, 0.9);
+            return;
+        }
+
+        if (penguin.Personality.Temperament == PenguinTemperament.Grumpy || penguin.HoldsGrudge)
+        {
+            penguin.AdjustMood(-14f);
+            penguin.TriggerEmote(PenguinEmote.Angry, 1.4);
+            penguin.TriggerSquash(1.22f, 0.80f);
+            return;
+        }
+
+        switch (penguin.Personality.Temperament)
+        {
+            case PenguinTemperament.Cuddly:
+                penguin.AdjustMood(4f);
+                penguin.TriggerEmote(PenguinEmote.Heart, 1.2);
+                penguin.TriggerSquash(0.90f, 1.12f);
+                break;
+
+            case PenguinTemperament.ThrillSeeker:
+                penguin.AdjustMood(6f);
+                penguin.TriggerEmote(PenguinEmote.Sparkle, 1.2);
+                penguin.TriggerSquash(0.84f, 1.20f);
+                break;
+
+            case PenguinTemperament.Mischievous:
+                penguin.AdjustMood(3f);
+                penguin.TriggerEmote(PenguinEmote.Sparkle, 1.0);
+                break;
+
+            case PenguinTemperament.Chill:
+                penguin.AdjustMood(-1f);
+                penguin.TriggerSquash(0.95f, 1.05f);
+                break;
+
+            case PenguinTemperament.Shy:
+                penguin.AdjustMood(-10f);
+                penguin.TriggerEmote(PenguinEmote.Alert, 1.3);
+                break;
+
+            case PenguinTemperament.Curious:
+                penguin.TriggerEmote(PenguinEmote.Curious, 1.1);
+                break;
+
+            case PenguinTemperament.Dramatic:
+                penguin.TriggerEmote(PenguinEmote.Alert, 1.5);
+                penguin.TriggerSquash(0.76f, 1.32f);
+                break;
+
+            default:
+                penguin.TriggerEmote(PenguinEmote.Alert, 0.9);
+                break;
+        }
+    }
+
+    private bool TryEscapeGrabByPersonality(Penguin penguin, double dtSec)
+    {
+        bool resistsGrab = penguin.Personality.Temperament == PenguinTemperament.Grumpy || penguin.HoldsGrudge;
+        if (!resistsGrab)
+        {
+            return false;
+        }
+
+        penguin.AdjustMood((float)(-10.0 * dtSec));
+        if (penguin.Emote != PenguinEmote.Angry)
+        {
+            penguin.TriggerEmote(PenguinEmote.Angry, 0.9);
+        }
+
+        double escapeAfter = penguin.Personality.Temperament == PenguinTemperament.Grumpy ? 1.05 : 1.45;
+        if (penguin.GrabHeldSeconds < escapeAfter)
+        {
+            return false;
+        }
+
+        double kickVx = (_rng.Next(2) == 0 ? -1 : 1) * 4.5 * penguin.Scale;
+        penguin.ReleaseGrab(kickVx, -4.4 * penguin.Scale);
+        penguin.HuffySecondsRemaining = 2.0;
+        penguin.TriggerSquash(0.80f, 1.26f);
+        penguin.TriggerEmote(PenguinEmote.Angry, 1.8);
+        SoundRequested?.Invoke(SoundEffectKind.Eep);
+        return true;
+    }
+
+    private void ApplyClickPersonality(Penguin penguin)
+    {
+        double s = penguin.Scale;
+        double hopVy;
+        if (penguin.SubType == PenguinSubType.Baby)
+        {
+            hopVy = -6.2 * s;
+        }
+        else if (!_enablePersonalities)
+        {
+            hopVy = -4.5 * s;
+        }
+        else if (penguin.Personality.Temperament == PenguinTemperament.Dramatic ||
+                 penguin.Personality.Quirk == PenguinQuirk.Acrobat)
+        {
+            hopVy = -5.6 * s;
+        }
+        else if (penguin.Personality.Temperament == PenguinTemperament.Cuddly)
+        {
+            hopVy = -5.0 * s;
+        }
+        else if (penguin.Personality.Temperament == PenguinTemperament.Chill)
+        {
+            hopVy = -3.1 * s;
+        }
+        else if (penguin.Personality.Temperament == PenguinTemperament.Grumpy || penguin.HoldsGrudge)
+        {
+            hopVy = -3.6 * s;
+        }
+        else
+        {
+            hopVy = -4.5 * s;
+        }
+
+        double hopVx = _enablePersonalities &&
+            (penguin.Personality.Temperament is PenguinTemperament.Grumpy or PenguinTemperament.Shy || penguin.HoldsGrudge)
+            ? (_rng.Next(2) == 0 ? -2.2 : 2.2) * s
+            : 0;
+
+        penguin.ReleaseGrab(hopVx, hopVy);
+
+        if (!_enablePersonalities)
+        {
+            penguin.TriggerSquash(0.82f, 1.24f);
+            return;
+        }
+
+        if (penguin.Personality.Temperament == PenguinTemperament.Grumpy || penguin.HoldsGrudge)
+        {
+            penguin.AdjustMood(-10f);
+            penguin.HuffySecondsRemaining = 1.6;
+            penguin.TriggerSquash(1.22f, 0.80f);
+            penguin.TriggerEmote(PenguinEmote.Angry, 1.5);
+            return;
+        }
+
+        switch (penguin.Personality.Temperament)
+        {
+            case PenguinTemperament.Cuddly:
+                penguin.AdjustMood(8f);
+                penguin.TriggerSquash(0.82f, 1.24f);
+                penguin.TriggerEmote(PenguinEmote.Heart, 1.5);
+                break;
+
+            case PenguinTemperament.Shy:
+                penguin.AdjustMood(-6f);
+                penguin.TriggerSquash(0.84f, 1.22f);
+                penguin.TriggerEmote(PenguinEmote.Alert, 1.2);
+                break;
+
+            case PenguinTemperament.ThrillSeeker:
+            case PenguinTemperament.Dramatic:
+            case PenguinTemperament.Mischievous:
+                penguin.AdjustMood(6f);
+                penguin.TriggerSquash(0.78f, 1.28f);
+                penguin.TriggerEmote(PenguinEmote.Sparkle, 1.4);
+                break;
+
+            case PenguinTemperament.Curious:
+                penguin.AdjustMood(4f);
+                penguin.TriggerSquash(0.84f, 1.20f);
+                penguin.TriggerEmote(PenguinEmote.Curious, 1.2);
+                break;
+
+            case PenguinTemperament.Chill:
+                penguin.AdjustMood(2f);
+                penguin.TriggerSquash(0.92f, 1.08f);
+                penguin.TriggerEmote(PenguinEmote.Sleep, 1.0);
+                break;
+
+            default:
+                penguin.TriggerSquash(0.82f, 1.24f);
+                break;
+        }
+    }
+
+    private void ApplyThrowPersonality(Penguin penguin, double vx, double vy)
+    {
+        if (!_enablePersonalities)
+        {
+            return;
+        }
+
+        double throwSpeed = Math.Sqrt((vx * vx) + (vy * vy)) / Math.Max(0.5, penguin.Scale);
+        if (throwSpeed >= 8.0)
+        {
+            if (penguin.Personality.Temperament is PenguinTemperament.ThrillSeeker or PenguinTemperament.Dramatic or PenguinTemperament.Mischievous ||
+                penguin.Personality.Quirk == PenguinQuirk.Acrobat)
+            {
+                penguin.AdjustMood(14f);
+                penguin.TriggerEmote(PenguinEmote.Sparkle, 1.8);
+                SoundRequested?.Invoke(SoundEffectKind.Chirp);
+            }
+            else if (penguin.Personality.Temperament is PenguinTemperament.Grumpy or PenguinTemperament.Shy)
+            {
+                penguin.AdjustMood(-22f);
+                penguin.HuffySecondsRemaining = 2.5;
+                penguin.TriggerEmote(
+                    penguin.Personality.Temperament == PenguinTemperament.Grumpy ? PenguinEmote.Angry : PenguinEmote.Alert,
+                    1.9);
+            }
+            else
+            {
+                penguin.AdjustMood(-8f);
+                penguin.TriggerEmote(PenguinEmote.Alert, 1.2);
+            }
+        }
+        else if (throwSpeed < 5.0)
+        {
+            if (penguin.Personality.Temperament is PenguinTemperament.Cuddly or PenguinTemperament.Shy)
+            {
+                penguin.AdjustMood(5f);
+                penguin.TriggerEmote(PenguinEmote.Heart, 1.3);
+            }
+            else if (penguin.Personality.Temperament == PenguinTemperament.Grumpy || penguin.HoldsGrudge)
+            {
+                penguin.AdjustMood(-6f);
+                penguin.HuffySecondsRemaining = 1.6;
+                penguin.TriggerEmote(PenguinEmote.Angry, 1.4);
+            }
+        }
+    }
+
+    private void TryHandleCursorPetting(
+        Penguin penguin,
+        Point cursor,
+        double cursorStepDist,
+        double cursorSpeedPxPerSec,
+        double dtSec,
+        AppSettings settings)
+    {
+        if (penguin.Animation is not (PenguinAnimationId.Walker or PenguinAnimationId.SantaWalker))
+        {
+            return;
+        }
+
+        Rectangle touchBox = Rectangle.Inflate(penguin.Bounds, 6, 6);
+        if (!touchBox.Contains(cursor))
+        {
+            if (penguin.PetAccumulatedDistance > 0)
+            {
+                penguin.PetAccumulatedDistance = Math.Max(0, penguin.PetAccumulatedDistance - (40.0 * dtSec));
+            }
+            return;
+        }
+
+        if (cursorSpeedPxPerSec is > 18.0 and < 950.0)
+        {
+            penguin.PetAccumulatedDistance += cursorStepDist;
+        }
+
+        if (penguin.PetCooldown > 0 || penguin.PetAccumulatedDistance < 20.0 * penguin.Scale)
+        {
+            return;
+        }
+
+        penguin.PetAccumulatedDistance = 0;
+        penguin.PetCooldown = 1.35;
+
+        bool rejectsTouch = (penguin.Personality.Temperament == PenguinTemperament.Grumpy && penguin.Mood < 35f) ||
+            penguin.HoldsGrudge;
+        bool startledShy = penguin.Personality.Temperament == PenguinTemperament.Shy && cursorSpeedPxPerSec > 240.0;
+
+        if (rejectsTouch || startledShy)
+        {
+            penguin.IdleSecondsRemaining = 0;
+            penguin.AdjustMood(rejectsTouch ? -10f : -7f);
+            penguin.TriggerEmote(rejectsTouch ? PenguinEmote.Angry : PenguinEmote.Alert, 1.6);
+            penguin.TriggerSquash(rejectsTouch ? 1.22f : 0.84f, rejectsTouch ? 0.80f : 1.22f);
+            penguin.HuffySecondsRemaining = rejectsTouch ? 1.8 : 1.1;
+
+            int cx = penguin.X + (penguin.Width / 2);
+            FacingDirection away = cx < cursor.X ? FacingDirection.Left : FacingDirection.Right;
+            CollisionDirection awayDir = away == FacingDirection.Right ? CollisionDirection.Right : CollisionDirection.Left;
+            if (!World.IsBlocked(penguin.Bounds, awayDir))
+            {
+                double walkSpeed = 3.2 * penguin.Scale * penguin.SpeedMultiplier;
+                penguin.SetAnimation(penguin.Animation, away);
+                penguin.SetVelocity(away == FacingDirection.Right ? walkSpeed * 1.35 : -walkSpeed * 1.35, 0);
+            }
+
+            SoundRequested?.Invoke(SoundEffectKind.Eep);
+            return;
+        }
+
+        bool cuddly = penguin.Personality.Temperament == PenguinTemperament.Cuddly;
+        penguin.AdjustMood(cuddly ? 14f : 10f);
+        penguin.TriggerEmote(cuddly || penguin.Mood >= 25f ? PenguinEmote.Heart : PenguinEmote.Sparkle, 1.6);
+        penguin.TriggerSquash(1.18f, 0.84f);
+        if (settings.EnableIdlePauses)
+        {
+            penguin.IdleSecondsRemaining = Math.Max(penguin.IdleSecondsRemaining, cuddly ? 0.55 : 0.25);
+            penguin.ResetFrameToStanding();
+        }
+        SoundRequested?.Invoke(SoundEffectKind.Chirp);
+    }
+
+    private void ApplyPersonalityCursorProximity(Penguin p, Point cursor, double cursorSpeedPxPerSec)
+    {
+        if (p.SubType == PenguinSubType.King ||
+            p.IsIdle ||
+            p.IsSeekingFish ||
+            p.Animation is not (PenguinAnimationId.Walker or PenguinAnimationId.SantaWalker))
+        {
+            return;
+        }
+
+        int cx = p.X + (p.Width / 2);
+        int cy = p.Y + (p.Height / 2);
+        int dx = cx - cursor.X;
+        int dy = cy - cursor.Y;
+        double s = p.Scale;
+        double walkSpeed = 3.2 * s * p.SpeedMultiplier;
+
+        bool wantsEscape = (p.Personality.Temperament == PenguinTemperament.Shy && cursorSpeedPxPerSec > 260.0) || p.HoldsGrudge;
+        if (wantsEscape)
+        {
+            int escapeRadius = ScaleSize(72, s);
+            if ((dx * dx) + (dy * dy) <= escapeRadius * escapeRadius)
+            {
+                FacingDirection away = dx < 0 ? FacingDirection.Left : FacingDirection.Right;
+                CollisionDirection awayDir = away == FacingDirection.Right ? CollisionDirection.Right : CollisionDirection.Left;
+                if (!World.IsBlocked(p.Bounds, awayDir))
+                {
+                    if (p.Direction != away)
+                    {
+                        p.SetAnimation(p.Animation, away);
+                    }
+                    p.SetVelocity(away == FacingDirection.Right ? walkSpeed * 1.35 : -walkSpeed * 1.35, 0);
+                    p.HuffySecondsRemaining = Math.Max(p.HuffySecondsRemaining, 0.9);
+                }
+
+                if (p.PersonalityReactCooldown <= 0)
+                {
+                    p.PersonalityReactCooldown = 2.0;
+                    p.TriggerEmote(p.HoldsGrudge ? PenguinEmote.Angry : PenguinEmote.Alert, 1.3);
+                }
+            }
+            return;
+        }
+
+        if (p.Personality.Temperament is PenguinTemperament.Curious or PenguinTemperament.Cuddly &&
+            cursorSpeedPxPerSec < 280.0 &&
+            Math.Abs(dx) > ScaleSize(22, s) &&
+            Math.Abs(dx) <= ScaleSize(120, s) &&
+            Math.Abs(dy) <= ScaleSize(55, s))
+        {
+            FacingDirection toward = cursor.X > cx ? FacingDirection.Right : FacingDirection.Left;
+            CollisionDirection towardDir = toward == FacingDirection.Right ? CollisionDirection.Right : CollisionDirection.Left;
+            if (!World.IsBlocked(p.Bounds, towardDir) && !World.HasHorizontalBarrierBetween(p.Bounds, cursor.X))
+            {
+                if (p.Direction != toward)
+                {
+                    p.SetAnimation(p.Animation, toward);
+                    p.SetVelocity(toward == FacingDirection.Right ? walkSpeed : -walkSpeed, 0);
+                }
+
+                if (p.PersonalityReactCooldown <= 0)
+                {
+                    p.PersonalityReactCooldown = 3.2;
+                    p.TriggerEmote(
+                        p.Personality.Temperament == PenguinTemperament.Curious ? PenguinEmote.Curious : PenguinEmote.Heart,
+                        1.3);
+                }
+            }
+        }
     }
 
     private static int ScaleSize(int baseSize, double scale) =>

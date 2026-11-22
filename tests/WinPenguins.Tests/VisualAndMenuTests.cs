@@ -167,6 +167,32 @@ public sealed class VisualAndMenuTests
     }
 
     [Fact]
+    public void D2DVisual_RendersNewPersonalityEmotesAngryCuriousAndSparkle()
+    {
+        const int width = 240;
+        const int height = 100;
+
+        SpriteCatalog catalog = SpriteCatalog.LoadDefault(1.0);
+        using var host = new OverlayHost(new AppSettings { PrimaryMonitorOnly = true }, catalog);
+        host.SetVisible(false);
+        var world = new CollisionWorld([new Rectangle(0, 0, width, height)]);
+
+        Penguin angry = CreateTestPenguin(world, catalog, PenguinSubType.Normal, PenguinAnimationId.Walker, FacingDirection.Right, 20, 50, PenguinEmote.Angry);
+        Penguin curious = CreateTestPenguin(world, catalog, PenguinSubType.Normal, PenguinAnimationId.Walker, FacingDirection.Right, 96, 50, PenguinEmote.Curious);
+        Penguin sparkle = CreateTestPenguin(world, catalog, PenguinSubType.Normal, PenguinAnimationId.Walker, FacingDirection.Right, 172, 50, PenguinEmote.Sparkle);
+
+        byte[] frame = host.CaptureTestSceneBgra(width, height, [angry, curious, sparkle], 255);
+
+        int angryPixels = CountOpaquePixels(frame, width, new Rectangle(24, 32, 24, 18));
+        int curiousPixels = CountOpaquePixels(frame, width, new Rectangle(100, 32, 24, 18));
+        int sparklePixels = CountOpaquePixels(frame, width, new Rectangle(176, 32, 24, 18));
+
+        Assert.True(angryPixels >= 8, $"Expected visible Angry emote pixels above penguin, found {angryPixels}.");
+        Assert.True(curiousPixels >= 8, $"Expected visible Curious emote pixels above penguin, found {curiousPixels}.");
+        Assert.True(sparklePixels >= 8, $"Expected visible Sparkle emote pixels above penguin, found {sparklePixels}.");
+    }
+
+    [Fact]
     public void OverlayContextMenus_AllItemsValidAndChangeRoleCoversEveryCrewSubType()
     {
         StaRunner.Run(() =>
@@ -218,6 +244,28 @@ public sealed class VisualAndMenuTests
 
             Assert.Equal(PenguinSubType.Santa, target.SubType);
             Assert.Equal(expectedRoles.Length, redrawCalls);
+
+            // Verify disabled character header and Change Personality submenu covering every temperament + reroll.
+            ToolStripMenuItem headerItem = Assert.IsType<ToolStripMenuItem>(penguinMenu.Items[0]);
+            Assert.False(headerItem.Enabled);
+            Assert.Contains(target.Personality.Name, headerItem.Text, StringComparison.Ordinal);
+
+            ToolStripMenuItem? personalityRoot = penguinMenu.Items
+                .OfType<ToolStripMenuItem>()
+                .FirstOrDefault(i => string.Equals(i.Text, "Change Personality", StringComparison.Ordinal));
+            Assert.NotNull(personalityRoot);
+            Assert.IsType<FluentMenuRenderer>(personalityRoot.DropDown.Renderer);
+
+            PenguinTemperament[] expectedTemperaments = Enum.GetValues<PenguinTemperament>();
+            ToolStripMenuItem[] personalityItems = personalityRoot.DropDownItems.OfType<ToolStripMenuItem>().ToArray();
+            Assert.Equal(expectedTemperaments.Length + 1, personalityItems.Length);
+
+            personalityItems.First(i => string.Equals(i.Text, "Grumpy", StringComparison.Ordinal)).PerformClick();
+            Assert.Equal(PenguinTemperament.Grumpy, target.Personality.Temperament);
+
+            int beforeRerollId = target.Personality.CharacterId;
+            personalityItems.First(i => string.Equals(i.Text, "Randomize Character", StringComparison.Ordinal)).PerformClick();
+            Assert.NotEqual(beforeRerollId, target.Personality.CharacterId);
 
             // Exercise Feed Fish, Drop Trampoline, Options, Explode, and Toy menu too.
             penguinMenu.Items.OfType<ToolStripMenuItem>().First(i => string.Equals(i.Text, "Feed Fish Here", StringComparison.Ordinal)).PerformClick();

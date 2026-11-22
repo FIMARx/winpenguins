@@ -75,6 +75,7 @@ public sealed class OptionsForm : Form
     private readonly FluentChipButton _djChip;
     private readonly FluentChipButton _jetpackChip;
     private readonly FluentChipButton _sleepyChip;
+    private readonly FluentToggleSwitch _personalitiesToggle;
     private readonly FluentToggleSwitch _idlePausesToggle;
     private readonly FluentToggleSwitch _parachutesToggle;
     private readonly FluentToggleSwitch _neverSplatToggle;
@@ -266,7 +267,7 @@ public sealed class OptionsForm : Form
         brandTextPanel.Controls.Add(brandTitleLbl, 0, 0);
         var brandSubLbl = new Label
         {
-            Text = "v2.1.5 · Windows 11",
+            Text = "v2.2.0 · Windows 11",
             Font = _rowDescFont,
             ForeColor = _palette.TextSecondary,
             AutoSize = true,
@@ -371,6 +372,8 @@ public sealed class OptionsForm : Form
 
         AddSectionHeader(page1, "Physics & Lifelike Habits");
         FluentVerticalStack habitRows = AddCard(page1);
+        _personalitiesToggle = AddToggleRow(habitRows, "Unique penguin personalities", "Every penguin gets a unique name, mood, and reactions to pets, grabs, and throws");
+        AddDivider(habitRows);
         _idlePausesToggle = AddToggleRow(habitRows, "Occasional idle pauses & glances", "Walkers briefly stop to look around before continuing");
         AddDivider(habitRows);
         _parachutesToggle = AddToggleRow(habitRows, "Umbrella parachutes", "Allow gentle umbrella spawns and mid-air parachute rescues");
@@ -855,6 +858,7 @@ public sealed class OptionsForm : Form
             AllowDjPenguins = _djChip.Checked,
             AllowJetpackPenguins = _jetpackChip.Checked,
             AllowSleepyPenguins = _sleepyChip.Checked,
+            EnablePersonalities = _personalitiesToggle.Checked,
             EnableIdlePauses = _idlePausesToggle.Checked,
             EnableParachutes = _parachutesToggle.Checked,
             NeverSplat = _neverSplatToggle.Checked,
@@ -908,6 +912,7 @@ public sealed class OptionsForm : Form
             _djChip.Checked = copy.AllowDjPenguins;
             _jetpackChip.Checked = copy.AllowJetpackPenguins;
             _sleepyChip.Checked = copy.AllowSleepyPenguins;
+            _personalitiesToggle.Checked = copy.EnablePersonalities;
             _idlePausesToggle.Checked = copy.EnableIdlePauses;
             _parachutesToggle.Checked = copy.EnableParachutes;
             _neverSplatToggle.Checked = copy.NeverSplat;

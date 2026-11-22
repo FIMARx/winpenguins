@@ -232,7 +232,10 @@ public sealed class TrayApplicationContext : ApplicationContext
         _world.Update(GetMonitorBounds(_overlayHost.ActiveScreens), snapshot.SolidWindows, _cachedMonitorScales);
 
         Point? cursor = null;
-        if ((_settings.CursorAvoidance || (_settings.CursorPerch && _settings.InteractiveMouse)) &&
+        bool trackCursor = _settings.CursorAvoidance ||
+            (_settings.InteractiveMouse && (_settings.CursorPerch || _settings.EnablePersonalities));
+        if (trackCursor &&
+            !IsCursorOverOwnMenuOrDialog() &&
             NativeMethods.GetCursorPos(out NativeMethods.POINT pt))
         {
             cursor = new Point(pt.X, pt.Y);
@@ -255,6 +258,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         {
             float audioPeak = _audioMeter.SamplePeak(_settings.EnableMusicDancing);
             _simulation.Step(_settings, deltaMs, cursor, audioPeak);
+            _ = ClearEscapedGrabIfNeeded();
         }
 
         _overlayHost.EnsureDesktopZOrderIfNeeded();
@@ -742,7 +746,7 @@ public sealed class TrayApplicationContext : ApplicationContext
             return;
         }
 
-        if (_grabbedPenguin is null)
+        if (_grabbedPenguin is null || ClearEscapedGrabIfNeeded())
         {
             return;
         }
@@ -775,7 +779,7 @@ public sealed class TrayApplicationContext : ApplicationContext
             return;
         }
 
-        if (_grabbedPenguin is null)
+        if (_grabbedPenguin is null || ClearEscapedGrabIfNeeded())
         {
             return;
         }
@@ -893,6 +897,11 @@ public sealed class TrayApplicationContext : ApplicationContext
         Action openOptions)
     {
         var menu = new ContextMenuStrip();
+        menu.Items.Add(new ToolStripMenuItem(hit.Personality.FormatMenuHeader(hit.Mood))
+        {
+            Enabled = false
+        });
+        menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(new ToolStripMenuItem("Feed Fish Here", null, (_, _) =>
         {
             (int fishW, int fishH) = DesktopToy.GetDimensions(ToyKind.Fish, scale);
@@ -934,12 +943,62 @@ public sealed class TrayApplicationContext : ApplicationContext
         }
 
         menu.Items.Add(roleMenu);
+
+        var personalityMenu = new ToolStripMenuItem("Change Personality");
+        foreach (PenguinTemperament temperament in Enum.GetValues<PenguinTemperament>())
+        {
+            PenguinTemperament chosen = temperament;
+            var item = new ToolStripMenuItem(PenguinPersonality.GetTemperamentLabel(chosen), null, (_, _) =>
+            {
+                hit.SetPersonality(hit.Personality.WithTemperament(chosen), resetMood: true);
+                hit.TriggerSquash(0.84f, 1.24f);
+                hit.TriggerEmote(GetTemperamentPreviewEmote(chosen), 1.4);
+                redraw();
+            })
+            {
+                Checked = hit.Personality.Temperament == chosen
+            };
+            personalityMenu.DropDownItems.Add(item);
+        }
+        personalityMenu.DropDownItems.Add(new ToolStripSeparator());
+        personalityMenu.DropDownItems.Add(new ToolStripMenuItem("Randomize Character", null, (_, _) =>
+        {
+            simulation.RerollPersonality(hit);
+            hit.TriggerSquash(0.84f, 1.24f);
+            hit.TriggerEmote(PenguinEmote.Sparkle, 1.4);
+            redraw();
+        }));
+        menu.Items.Add(personalityMenu);
+
         menu.Items.Add(new ToolStripMenuItem("Explode This Penguin", null, (_, _) => hit.TriggerBomber()));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(new ToolStripMenuItem("Scatter All", null, (_, _) => simulation.ScatterAll()));
         menu.Items.Add(new ToolStripMenuItem("Options...", null, (_, _) => openOptions()));
         _ = FluentUi.ApplyContextMenuTheme(menu, FluentPalette.DetectCurrent());
         return menu;
+    }
+
+    private static PenguinEmote GetTemperamentPreviewEmote(PenguinTemperament temperament) => temperament switch
+    {
+        PenguinTemperament.Cuddly => PenguinEmote.Heart,
+        PenguinTemperament.Grumpy => PenguinEmote.Angry,
+        PenguinTemperament.Shy => PenguinEmote.Alert,
+        PenguinTemperament.Chill => PenguinEmote.Sleep,
+        PenguinTemperament.Curious => PenguinEmote.Curious,
+        _ => PenguinEmote.Sparkle
+    };
+
+    private bool ClearEscapedGrabIfNeeded()
+    {
+        if (_grabbedPenguin is null || _grabbedPenguin.IsGrabbed)
+        {
+            return false;
+        }
+
+        _grabbedPenguin = null;
+        _dragSamples.Clear();
+        _overlayHost.CancelMouseCapture();
+        return true;
     }
 
     private void OnOverlayCaptureLost()
@@ -951,7 +1010,7 @@ public sealed class TrayApplicationContext : ApplicationContext
             _simulation.ReleaseToyGrab(releasedToy);
         }
 
-        if (_grabbedPenguin is null)
+        if (_grabbedPenguin is null || ClearEscapedGrabIfNeeded())
         {
             return;
         }

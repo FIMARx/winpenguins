@@ -8,7 +8,10 @@ public enum PenguinEmote : byte
     Heart = 1,
     Music = 2,
     Alert = 3,
-    Sleep = 4
+    Sleep = 4,
+    Angry = 5,
+    Curious = 6,
+    Sparkle = 7
 }
 
 public sealed class Penguin
@@ -41,6 +44,30 @@ public sealed class Penguin
     public bool IsSeekingFish { get; set; }
     public bool IsSliding => SlideSecondsRemaining > 0;
 
+    // Unique character personality & short-term mood memory.
+    public PenguinPersonality Personality { get; private set; } = PenguinCharacterCatalog.Default;
+    public float Mood { get; private set; } = PenguinCharacterCatalog.Default.BaselineMood;
+    public double GrabHeldSeconds { get; set; }
+    public double PetAccumulatedDistance { get; set; }
+    public double PetCooldown { get; set; }
+    public double PersonalityReactCooldown { get; set; }
+    public double HuffySecondsRemaining { get; set; }
+    public bool HoldsGrudge => Mood <= -35f;
+
+    public void SetPersonality(PenguinPersonality personality, bool resetMood = true)
+    {
+        Personality = personality;
+        if (resetMood)
+        {
+            Mood = personality.BaselineMood;
+        }
+    }
+
+    public void AdjustMood(float delta)
+    {
+        Mood = Math.Clamp(Mood + delta, -100f, 100f);
+    }
+
     // 240Hz smooth visual transform state (does not mutate collision Bounds).
     public float VisualRotationDeg { get; set; }
     public float VisualScaleX { get; set; } = 1.0f;
@@ -71,9 +98,41 @@ public sealed class Penguin
         VisualScaleX += (1.0f - VisualScaleX) * blend;
         VisualScaleY += (1.0f - VisualScaleY) * blend;
 
-        if (Animation == PenguinAnimationId.Tumbler && !IsGrabbed)
+        if (IsGrabbed)
         {
-            float spinRate = Math.Clamp((float)Math.Abs(VelocityX) * 42f, 220f, 720f);
+            GrabHeldSeconds += dt;
+            float t = (float)GrabHeldSeconds;
+            if (Personality.Temperament == PenguinTemperament.Grumpy || HoldsGrudge)
+            {
+                VisualRotationDeg = MathF.Sin(t * 34f) * 24f;
+                VisualScaleX = 1.0f + MathF.Sin(t * 28f) * 0.08f;
+                VisualScaleY = 1.0f - MathF.Sin(t * 28f) * 0.08f;
+            }
+            else if (Personality.Temperament == PenguinTemperament.Shy)
+            {
+                VisualRotationDeg = MathF.Sin(t * 28f) * 9f;
+            }
+            else if (Personality.Temperament == PenguinTemperament.Mischievous)
+            {
+                VisualRotationDeg = MathF.Sin(t * 20f) * 15f;
+            }
+            else if (Personality.Temperament == PenguinTemperament.Cuddly)
+            {
+                VisualRotationDeg = MathF.Sin(t * 5f) * 5f;
+            }
+            else if (Personality.Temperament == PenguinTemperament.Chill)
+            {
+                VisualRotationDeg += (0f - VisualRotationDeg) * blend;
+            }
+            else
+            {
+                VisualRotationDeg = MathF.Sin(t * 10f) * 8f;
+            }
+        }
+        else if (Animation == PenguinAnimationId.Tumbler)
+        {
+            float spinBoost = Personality.Temperament is PenguinTemperament.Dramatic or PenguinTemperament.ThrillSeeker ? 1.25f : 1f;
+            float spinRate = Math.Clamp((float)Math.Abs(VelocityX) * 42f * spinBoost, 220f, 820f);
             float dirSign = VelocityX >= 0 ? 1f : -1f;
             VisualRotationDeg = (VisualRotationDeg + dirSign * spinRate * (float)dt) % 360f;
         }
@@ -103,6 +162,16 @@ public sealed class Penguin
         if (BeatCooldown > 0) BeatCooldown = Math.Max(0, BeatCooldown - dt);
         if (ActionCooldown > 0) ActionCooldown = Math.Max(0, ActionCooldown - dt);
         if (JetBoostSeconds > 0) JetBoostSeconds = Math.Max(0, JetBoostSeconds - dt);
+        if (PetCooldown > 0) PetCooldown = Math.Max(0, PetCooldown - dt);
+        if (PersonalityReactCooldown > 0) PersonalityReactCooldown = Math.Max(0, PersonalityReactCooldown - dt);
+
+        float baseline = Personality.BaselineMood;
+        float moodDiff = baseline - Mood;
+        if (Math.Abs(moodDiff) > 0.05f)
+        {
+            float maxDrift = (float)(1.8 * dt);
+            Mood += Math.Clamp(moodDiff, -maxDrift, maxDrift);
+        }
         if (EmoteSecondsRemaining > 0)
         {
             EmoteSecondsRemaining = Math.Max(0, EmoteSecondsRemaining - dt);
@@ -225,6 +294,8 @@ public sealed class Penguin
         IsGrabbed = true;
         IsParachuting = false;
         IdleSecondsRemaining = 0;
+        GrabHeldSeconds = 0;
+        PetAccumulatedDistance = 0;
         StartingUp = false;
         _accumX = 0;
         _accumY = 0;
@@ -245,6 +316,7 @@ public sealed class Penguin
         IsGrabbed = false;
         IsParachuting = false;
         IdleSecondsRemaining = 0;
+        GrabHeldSeconds = 0;
         StartingUp = false;
 
         if (Math.Abs(velocityX) > 6.5 * Scale || velocityY < -1.5 * Scale)

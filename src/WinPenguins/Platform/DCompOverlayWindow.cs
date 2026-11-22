@@ -467,7 +467,40 @@ public sealed class DCompOverlayWindow : NativeWindow, IDisposable
                 DrawTinyZ(d2dContext, cx - 2.5f, topY + 1.5f, 4.5f, brush);
                 DrawTinyZ(d2dContext, cx + 3.0f, topY - 4.0f, 5.5f, brush);
                 break;
+
+            case PenguinEmote.Angry:
+                brush.Color = new Color4(1.0f, 0.28f, 0.24f, alpha);
+                DrawCornerTick(d2dContext, cx - 1.4f, topY - 1.0f, -2.8f, -2.8f, brush);
+                DrawCornerTick(d2dContext, cx + 1.4f, topY - 1.0f, 2.8f, -2.8f, brush);
+                DrawCornerTick(d2dContext, cx - 1.4f, topY + 1.8f, -2.8f, 2.8f, brush);
+                DrawCornerTick(d2dContext, cx + 1.4f, topY + 1.8f, 2.8f, 2.8f, brush);
+                break;
+
+            case PenguinEmote.Curious:
+                brush.Color = new Color4(0.30f, 0.86f, 1.0f, alpha);
+                d2dContext.DrawLine(new Vector2(cx - 2.4f, topY - 1.8f), new Vector2(cx - 1.2f, topY - 3.8f), brush, 1.7f);
+                d2dContext.DrawLine(new Vector2(cx - 1.2f, topY - 3.8f), new Vector2(cx + 1.6f, topY - 3.8f), brush, 1.7f);
+                d2dContext.DrawLine(new Vector2(cx + 1.6f, topY - 3.8f), new Vector2(cx + 2.6f, topY - 1.8f), brush, 1.7f);
+                d2dContext.DrawLine(new Vector2(cx + 2.6f, topY - 1.8f), new Vector2(cx + 0.1f, topY + 0.4f), brush, 1.7f);
+                d2dContext.DrawLine(new Vector2(cx + 0.1f, topY + 0.4f), new Vector2(cx + 0.1f, topY + 2.2f), brush, 1.7f);
+                d2dContext.FillEllipse(new Ellipse(new Vector2(cx + 0.1f, topY + 4.7f), 1.4f, 1.4f), brush);
+                break;
+
+            case PenguinEmote.Sparkle:
+                brush.Color = new Color4(1.0f, 0.84f, 0.16f, alpha);
+                d2dContext.FillEllipse(new Ellipse(new Vector2(cx, topY + 0.5f), 1.6f, 5.2f), brush);
+                d2dContext.FillEllipse(new Ellipse(new Vector2(cx, topY + 0.5f), 5.2f, 1.6f), brush);
+                d2dContext.FillEllipse(new Ellipse(new Vector2(cx + 5.0f, topY - 3.2f), 1.3f, 1.3f), brush);
+                brush.Color = new Color4(1.0f, 1.0f, 0.96f, alpha);
+                d2dContext.FillEllipse(new Ellipse(new Vector2(cx, topY + 0.5f), 1.5f, 1.5f), brush);
+                break;
         }
+    }
+
+    private static void DrawCornerTick(ID2D1DeviceContext d2dContext, float cornerX, float cornerY, float dx, float dy, ID2D1SolidColorBrush brush)
+    {
+        d2dContext.DrawLine(new Vector2(cornerX + dx, cornerY), new Vector2(cornerX, cornerY), brush, 1.6f);
+        d2dContext.DrawLine(new Vector2(cornerX, cornerY), new Vector2(cornerX, cornerY + dy), brush, 1.6f);
     }
 
     private static void DrawTinyZ(ID2D1DeviceContext d2dContext, float x, float y, float size, ID2D1SolidColorBrush brush)
@@ -889,6 +922,15 @@ public sealed class DCompOverlayWindow : NativeWindow, IDisposable
         }
 
         base.WndProc(ref m);
+    }
+
+    public void CancelMouseCapture()
+    {
+        if (_capturing)
+        {
+            _capturing = false;
+            NativeMethods.ReleaseCapture();
+        }
     }
 
     public void Dispose()

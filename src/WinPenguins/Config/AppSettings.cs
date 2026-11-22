@@ -40,6 +40,7 @@ public sealed class AppSettings
     public bool AllowJetpackPenguins { get; set; } = true;
     public bool AllowSleepyPenguins { get; set; } = true;
 
+    public bool EnablePersonalities { get; set; } = true;
     public bool EnableIdlePauses { get; set; } = true;
     public bool EnableParachutes { get; set; } = true;
 

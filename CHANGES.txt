@@ -1,3 +1,8 @@
+2.2.0 (Unique Penguin Characters & Personalities)
+  - Added a 100-character unique penguin identity system (100 distinct names paired with 8 Temperaments — Cuddly, Grumpy, Shy, Thrill-Seeker, Chill, Curious, Dramatic, Mischievous — and 10 stackable Quirks — Foodie, Climber, Slider, Social, Loner, Groovy, Acrobat, Napper, Explorer, Daydreamer) that combines with Crew Roles
+  - Added expressive per-penguin reactions to cursor petting, clicks, grabs, throws, perching, music, toys, and greetings: Grumpy penguins squirm furiously, reject touch, and kick free if held too long; Cuddly penguins love gentle pets and perching; Shy penguins startle at fast cursors but warm up to slow petting; Curious penguins walk over to inspect your cursor; Thrill-Seekers cheer when flung fast; and short-term mood grudges melt when fed a Fish Snack
+  - Added three new GPU-rendered procedural emotes (Angry, Curious ?, and golden Sparkle) plus a right-click penguin identity header ("Name · Temperament & Quirk · Mood"), a "Change Personality" / "Randomize Character" submenu, and a "Unique penguin personalities" toggle in Options
+
 2.1.5 (Taskbar Toy Surfacing & Fish-Seek Unstick Fix)
   - Prevented Fish Snacks and Trampolines from remaining buried inside the taskbar or solid windows (automatically surfaces overlapping non-pinned toys onto the taskbar/window top edge on step, context-menu "Feed Fish Here" / "Drop Trampoline Here", tray toy drops, and Chef free-fish drops)
   - Fixed penguins getting stuck piling up at walls or above unreachable fish (matched fish-seeking vertical reach to actual eating reach and stopped walkers from steering into blocking walls or horizontal window barriers while seeking fish)

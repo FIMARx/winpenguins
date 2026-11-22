@@ -2030,4 +2030,271 @@ public sealed class NextLevelFeatureTests
         var crownTopLeftWall = System.Numerics.Vector2.Transform(new System.Numerics.Vector2(16f, 2f), leftWallM);
         Assert.True(crownTopLeftWall.X > 26f, $"Expected crown point on right side when climbing left wall, got X={crownTopLeftWall.X}");
     }
+
+    [Fact]
+    public void PenguinPersonalities_All100SlotsHaveUniqueNamesAndBalancedTraitPairs()
+    {
+        Assert.Equal(AppSettings.MaxPenguins, PenguinCharacterCatalog.RosterSize);
+        Assert.Equal(100, PenguinCharacterCatalog.Names.Count);
+        Assert.Equal(100, PenguinCharacterCatalog.Names.Distinct(StringComparer.OrdinalIgnoreCase).Count());
+
+        var pairs = new HashSet<(PenguinTemperament, PenguinQuirk)>();
+        for (int slot = 0; slot < 80; slot++)
+        {
+            PenguinPersonality p = PenguinCharacterCatalog.CreateForSlot(slot);
+            Assert.True(pairs.Add((p.Temperament, p.Quirk)), $"Duplicate trait pair at slot {slot}: {p}");
+        }
+        Assert.Equal(80, pairs.Count);
+
+        var world = new CollisionWorld([new Rectangle(0, 0, 1920, 1080)]);
+        var sim = new PenguinSimulation(world, scale: 1.0, rng: new Random(42));
+        sim.EnsureCount(AppSettings.MaxPenguins);
+
+        Assert.Equal(100, sim.Penguins.Count);
+        Assert.Equal(100, sim.Penguins.Select(p => p.Personality.CharacterId).Distinct().Count());
+        Assert.Equal(100, sim.Penguins.Select(p => p.Personality.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count());
+    }
+
+    [Fact]
+    public void PenguinPersonalities_GrumpyPenguinSquirmsAndEscapesGrabEarly()
+    {
+        var world = new CollisionWorld([new Rectangle(0, 0, 1920, 1080)]);
+        var sim = new PenguinSimulation(world, scale: 1.0, rng: new Random(101));
+        var settings = new AppSettings
+        {
+            PenguinCount = 1,
+            EnablePersonalities = true,
+            InteractiveMouse = true,
+            EnableIdlePauses = false,
+            EnableParachutes = false
+        };
+
+        sim.EnsureCount(1);
+        Penguin p = sim.Penguins[0];
+        p.StartingUp = false;
+        p.SetPersonality(new PenguinPersonality(1, "Mochi", PenguinTemperament.Grumpy, PenguinQuirk.Loner, 1.0), resetMood: true);
+        p.X = 500;
+        p.Y = 500;
+
+        float moodBefore = p.Mood;
+        sim.BeginGrab(p);
+        Assert.True(p.IsGrabbed);
+        Assert.Equal(PenguinEmote.Angry, p.Emote);
+        Assert.True(p.Mood < moodBefore);
+
+        float maxSquirm = 0f;
+        for (int i = 0; i < 40 && p.IsGrabbed; i++)
+        {
+            sim.Step(settings, 40.0);
+            maxSquirm = Math.Max(maxSquirm, Math.Abs(p.VisualRotationDeg));
+        }
+
+        Assert.True(maxSquirm > 12f, $"Expected Grumpy penguin to squirm visibly while grabbed (maxSquirm={maxSquirm:F1}).");
+        Assert.False(p.IsGrabbed, "Grumpy penguin should kick free when held too long.");
+        Assert.Equal(PenguinEmote.Angry, p.Emote);
+        Assert.True(p.HuffySecondsRemaining > 0);
+    }
+
+    [Fact]
+    public void PenguinPersonalities_CuddlyLovesPettingAndGrumpyRejectsTouch()
+    {
+        var world = new CollisionWorld([new Rectangle(0, 0, 1920, 1080)]);
+        var sim = new PenguinSimulation(world, scale: 1.0, rng: new Random(102));
+        var settings = new AppSettings
+        {
+            PenguinCount = 2,
+            EnablePersonalities = true,
+            InteractiveMouse = true,
+            CursorAvoidance = false,
+            CursorPerch = false,
+            EnableIdlePauses = false,
+            EnableParachutes = false
+        };
+
+        sim.EnsureCount(2);
+        Penguin cuddly = sim.Penguins[0];
+        cuddly.StartingUp = false;
+        cuddly.SetPersonality(new PenguinPersonality(0, "Waddles", PenguinTemperament.Cuddly, PenguinQuirk.Social, 1.0), resetMood: true);
+        cuddly.X = 300;
+        cuddly.Y = 1080 - cuddly.Height;
+        cuddly.SetAnimation(PenguinAnimationId.Walker, FacingDirection.Right);
+        cuddly.SetVelocity(3.2, 0);
+
+        Penguin grumpy = sim.Penguins[1];
+        grumpy.StartingUp = false;
+        grumpy.SetPersonality(new PenguinPersonality(1, "Mochi", PenguinTemperament.Grumpy, PenguinQuirk.Loner, 1.0), resetMood: true);
+        grumpy.X = 1100;
+        grumpy.Y = 1080 - grumpy.Height;
+        grumpy.SetAnimation(PenguinAnimationId.Walker, FacingDirection.Right);
+        grumpy.SetVelocity(3.2, 0);
+
+        float cuddlyMoodBefore = cuddly.Mood;
+        // Gently pet Cuddly back and forth (~150 px/s).
+        for (int i = 0; i < 6; i++)
+        {
+            int cx = cuddly.X + cuddly.Width / 2 + (i % 2 == 0 ? -6 : 6);
+            int cy = cuddly.Y + cuddly.Height / 2;
+            sim.Step(settings, 80.0, new Point(cx, cy));
+        }
+
+        Assert.Equal(PenguinEmote.Heart, cuddly.Emote);
+        Assert.True(cuddly.Mood > cuddlyMoodBefore);
+
+        float grumpyMoodBefore = grumpy.Mood;
+        // Gently pet Grumpy back and forth -> rejects touch indignantly!
+        for (int i = 0; i < 6; i++)
+        {
+            int gx = grumpy.X + grumpy.Width / 2 + (i % 2 == 0 ? -6 : 6);
+            int gy = grumpy.Y + grumpy.Height / 2;
+            sim.Step(settings, 80.0, new Point(gx, gy));
+        }
+
+        Assert.Equal(PenguinEmote.Angry, grumpy.Emote);
+        Assert.True(grumpy.Mood < grumpyMoodBefore);
+        Assert.True(grumpy.HuffySecondsRemaining > 0);
+    }
+
+    [Fact]
+    public void PenguinPersonalities_ShyStartlesFromFastCursorButWarmsUpToSlowPetting()
+    {
+        var world = new CollisionWorld([new Rectangle(0, 0, 1920, 1080)]);
+        var sim = new PenguinSimulation(world, scale: 1.0, rng: new Random(103));
+        var settings = new AppSettings
+        {
+            PenguinCount = 1,
+            EnablePersonalities = true,
+            InteractiveMouse = true,
+            CursorAvoidance = false,
+            CursorPerch = false,
+            EnableIdlePauses = false,
+            EnableParachutes = false
+        };
+
+        sim.EnsureCount(1);
+        Penguin shy = sim.Penguins[0];
+        shy.StartingUp = false;
+        shy.SetPersonality(new PenguinPersonality(2, "Pebbles", PenguinTemperament.Shy, PenguinQuirk.Napper, 1.0), resetMood: true);
+        shy.X = 600;
+        shy.Y = 1080 - shy.Height;
+        shy.SetAnimation(PenguinAnimationId.Walker, FacingDirection.Right);
+        shy.SetVelocity(3.2, 0);
+
+        // Fast cursor approach (> 260 px/s) startles Shy walker away to the Left.
+        sim.Step(settings, 20.0, new Point(660, shy.Y + 12));
+        sim.Step(settings, 20.0, new Point(635, shy.Y + 12));
+        Assert.Equal(FacingDirection.Left, shy.Direction);
+        Assert.Equal(PenguinEmote.Alert, shy.Emote);
+
+        // Now calm slow petting (< 240 px/s) warms Shy up and raises mood!
+        shy.PetCooldown = 0;
+        shy.HuffySecondsRemaining = 0;
+        float moodBeforePet = shy.Mood;
+        for (int i = 0; i < 6; i++)
+        {
+            int sx = shy.X + shy.Width / 2 + (i % 2 == 0 ? -5 : 5);
+            int sy = shy.Y + shy.Height / 2;
+            sim.Step(settings, 100.0, new Point(sx, sy));
+        }
+
+        Assert.True(shy.Mood > moodBeforePet);
+        Assert.True(shy.Emote is PenguinEmote.Sparkle or PenguinEmote.Heart);
+    }
+
+    [Fact]
+    public void PenguinPersonalities_ThrillSeekerLovesFastThrowsWhileFishMeltsGrumpyGrudge()
+    {
+        var world = new CollisionWorld([new Rectangle(0, 0, 1920, 1080)]);
+        var sim = new PenguinSimulation(world, scale: 1.0, rng: new Random(104));
+        var settings = new AppSettings
+        {
+            PenguinCount = 2,
+            EnablePersonalities = true,
+            EnableIdlePauses = false,
+            EnableParachutes = false
+        };
+
+        sim.EnsureCount(2);
+        Penguin thrill = sim.Penguins[0];
+        thrill.StartingUp = false;
+        thrill.SetPersonality(new PenguinPersonality(3, "Comet", PenguinTemperament.ThrillSeeker, PenguinQuirk.Acrobat, 1.0), resetMood: true);
+        thrill.X = 400;
+        thrill.Y = 500;
+
+        float thrillMoodBefore = thrill.Mood;
+        sim.BeginGrab(thrill);
+        sim.ReleaseGrab(thrill, velocityPxPerSecX: 420, velocityPxPerSecY: -220, wasClick: false);
+        Assert.Equal(PenguinEmote.Sparkle, thrill.Emote);
+        Assert.True(thrill.Mood > thrillMoodBefore);
+
+        Penguin grumpy = sim.Penguins[1];
+        grumpy.StartingUp = false;
+        grumpy.SetPersonality(new PenguinPersonality(1, "Mochi", PenguinTemperament.Grumpy, PenguinQuirk.Foodie, 1.0), resetMood: true);
+        grumpy.X = 800;
+        grumpy.Y = 1080 - grumpy.Height;
+
+        sim.BeginGrab(grumpy);
+        sim.ReleaseGrab(grumpy, velocityPxPerSecX: 420, velocityPxPerSecY: -220, wasClick: false);
+        Assert.Equal(PenguinEmote.Angry, grumpy.Emote);
+        Assert.True(grumpy.HoldsGrudge, "Throwing a Grumpy penguin fast should make them hold a grudge.");
+
+        // Place Grumpy back on the floor next to a Fish Snack -> eating fish melts the grudge!
+        grumpy.X = 800;
+        grumpy.Y = 1080 - grumpy.Height;
+        grumpy.SetAnimation(PenguinAnimationId.Walker, FacingDirection.Right);
+        grumpy.SetVelocity(3.2, 0);
+        DesktopToy fish = sim.Toys.SpawnToy(ToyKind.Fish, 810, 1080 - 14, 1.0);
+        sim.Step(settings, 45.0);
+
+        Assert.False(fish.Active);
+        Assert.Equal(PenguinEmote.Heart, grumpy.Emote);
+        Assert.False(grumpy.HoldsGrudge);
+        Assert.Equal(0, grumpy.HuffySecondsRemaining);
+    }
+
+    [Fact]
+    public void PenguinPersonalities_CuriousTurnsTowardCalmCursorAndFoodieSpotsDistantFish()
+    {
+        var world = new CollisionWorld([new Rectangle(0, 0, 1920, 1080)]);
+        var sim = new PenguinSimulation(world, scale: 1.0, rng: new Random(105));
+        var settings = new AppSettings
+        {
+            PenguinCount = 2,
+            EnablePersonalities = true,
+            InteractiveMouse = true,
+            CursorAvoidance = false,
+            CursorPerch = false,
+            EnableIdlePauses = false,
+            EnableParachutes = false
+        };
+
+        sim.EnsureCount(2);
+        Penguin curious = sim.Penguins[0];
+        curious.StartingUp = false;
+        curious.SetPersonality(new PenguinPersonality(5, "Gizmo", PenguinTemperament.Curious, PenguinQuirk.Explorer, 1.0), resetMood: true);
+        curious.X = 300;
+        curious.Y = 1080 - curious.Height;
+        curious.SetAnimation(PenguinAnimationId.Walker, FacingDirection.Left);
+        curious.SetVelocity(-3.2, 0);
+
+        Penguin foodie = sim.Penguins[1];
+        foodie.StartingUp = false;
+        foodie.SetPersonality(new PenguinPersonality(8, "Biscuit", PenguinTemperament.Chill, PenguinQuirk.Foodie, 1.0), resetMood: true);
+        foodie.X = 1100;
+        foodie.Y = 1080 - foodie.Height;
+        foodie.SetAnimation(PenguinAnimationId.Walker, FacingDirection.Left);
+        foodie.SetVelocity(-3.2, 0);
+
+        // Place fish 430px away from Foodie (beyond standard 340px range, inside Foodie's 500px range).
+        _ = sim.Toys.SpawnToy(ToyKind.Fish, 1530, 1080 - 14, 1.0);
+
+        // Calm cursor 80px to the right of Curious makes Curious turn right to inspect it.
+        var calmCursor = new Point(curious.X + curious.Width / 2 + 80, curious.Y + 12);
+        sim.Step(settings, 45.0, calmCursor);
+        sim.Step(settings, 45.0, calmCursor);
+
+        Assert.Equal(FacingDirection.Right, curious.Direction);
+        Assert.Equal(PenguinEmote.Curious, curious.Emote);
+        Assert.True(foodie.IsSeekingFish);
+        Assert.Equal(FacingDirection.Right, foodie.Direction);
+    }
 }
